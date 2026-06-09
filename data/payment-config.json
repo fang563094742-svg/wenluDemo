@@ -1,64 +1,41 @@
 {
   "direct": {
-    "preferredLabel": "微信/支付宝任选其一",
-    "methods": [
-      {
-        "label": "微信收款码",
-        "instruction": "直接发送 data/payment-assets/wechat-pay.jpg 作为微信真实收款码。",
-        "assetPath": "data/payment-assets/wechat-pay.jpg",
-        "note": "已注入桌面 IMG_1266.JPG；直接扫码付款即可，付款后把截图发我确认。"
-      },
-      {
-        "label": "支付宝收款码",
-        "instruction": "直接发送 data/payment-assets/alipay-pay.jpg 作为支付宝真实收款码。",
-        "assetPath": "data/payment-assets/alipay-pay.jpg",
-        "note": "已注入桌面 IMG_1267.JPG；直接扫码付款即可，付款后把截图发我确认。"
-      }
-    ],
-    "remarkTemplate": "付款备注：{projectName} 定金 + 你的称呼/微信名"
+    "preferredLabel": "支付方式由当前开发者按实际业务场景补充",
+    "methods": [],
+    "remarkTemplate": "付款备注：{projectName}"
   },
   "platform": {
-    "label": "公开入口留痕成交页（默认给陌生客户）",
-    "instruction": "默认先把陌生客户引导到公开入口留痕页；客户看完后按页内三问信息回需求，确认范围后继续走陌生私聊与微信/支付宝定金承接。",
-    "link": "http://127.0.0.1:8899/platform-entry.html",
-    "note": "默认口径：公开发帖/评论区/搜索流量来的陌生客户，先看公开入口留痕页。动作最少链路：我发你入口页 → 你回我输入/输出/时间三件事 → 我确认范围和报价 → 继续私聊确认 → 你付定金并回截图 → 我确认后锁排期并开工。"
+    "label": "可选公开入口",
+    "instruction": "如需公开承接页，由当前开发者按实际部署地址补充。",
+    "link": "",
+    "note": "模板配置：请根据当前开发者自己的业务流程补充。"
   },
   "binance": {
     "owner": {
-      "label": "币安账户归属",
-      "accountType": "个人币安账户",
-      "holderName": "仅在明确核验需要时单独提供",
-      "evidence": "本机存在 Binance Desktop 本地运行痕迹：~/Library/Application Support/Binance、com.binance.BinanceDesktop.plist、Binance LaunchAgent，说明已有实际账户/客户端使用基础。",
-      "policy": "仅作为个人收款/结算账户使用，不归任何现有项目名义，不对外包装成公司主体账户；实名信息仅在明确核验需要时单独提供。"
+      "label": "可选数字货币收款",
+      "accountType": "由当前开发者自行补充",
+      "holderName": "如需使用，请由当前开发者按真实情况填写",
+      "evidence": "",
+      "policy": "模板配置：请不要保留上一位开发者的账户信息。"
     },
     "inbound": {
-      "label": "币安线入金口径",
-      "steps": [
-        "仅在客户主动提出 USDT/币安付款，且双方已明确金额、币种、网络后启用。",
-        "对外统一报：默认走 USDT，网络优先 TRC20；未确认前不发地址。",
-        "发起前先在币安收款页核对本次使用的钱包地址、币种、网络三项完全一致，再复制给客户。",
-        "客户转账后，要求其回传转账截图 + txid/hash；我这边以币安到账记录为准确认到账。"
-      ],
-      "warning": "币种、网络、地址三项只要有一项不一致就可能丢失资产，所以必须逐笔现查现发，不在文案里固化具体地址。"
+      "label": "收款口径模板",
+      "steps": [],
+      "warning": "模板配置：请由当前开发者按当前业务实际填写。"
     },
     "outbound": {
-      "label": "币安线提现/落袋口径",
-      "steps": [
-        "币安到账后，先在账户内留存订单对应截图/流水，标记这笔钱对应的客户与项目。",
-        "若要落到日常可用资金，优先走币安卖出/提现到设备主人自己的常用银行卡或实名支付账户。",
-        "不把客户资金直接提到他人账户，也不混同到现有项目对公/他人代收账户。",
-        "对外只承诺‘到账后开始排期/交付’，不承诺汇率，不代客户承担链上或平台手续费波动。"
-      ]
+      "label": "结算口径模板",
+      "steps": []
     },
     "copywriting": {
-      "trigger": "仅当客户明确问‘能不能币安/USDT’时再切到该口径；默认仍先推微信/支付宝/平台留痕。",
-      "shortReply": "可以，如果你这边更方便走币安，也可以按 USDT 付款。默认走 USDT-TRC20。你确认金额后，我这边现查并发你这次的收款地址；转完把截图和 txid 发我，我确认到账后马上锁排期。",
-      "ownerReply": "这条币安线使用个人收款账户承接，不挂任何项目主体；如平台或转账页需要实名核验，再单独补充对应信息。",
-      "riskReply": "为避免转错，地址、币种、网络我都会按这单单独现发一次；你没收到我当次确认前，先不要自行转。"
+      "trigger": "",
+      "shortReply": "",
+      "ownerReply": "",
+      "riskReply": ""
     }
   },
   "confirmation": {
-    "defaultStartWindow": "我确认到账后，今天就开始排期；24~48 小时给你首版。",
-    "askForProof": "付完把付款截图或订单页发我一下，我这边马上确认到账并给你锁排期。"
+    "defaultStartWindow": "由当前开发者按实际交付能力填写",
+    "askForProof": "由当前开发者按实际流程填写"
   }
 }

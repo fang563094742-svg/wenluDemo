@@ -33,6 +33,7 @@
  */
 
 import { readApiKey, readBaseUrl, readModel } from "../config/config.js";
+import { appendDebugLog } from "../debug/logFile.js";
 import type {
   LLM_Provider,
   LlmRequest,
@@ -310,8 +311,10 @@ export class Gpt54Provider implements LLM_Provider {
   ): Promise<ParsedSseStream> {
     const url = `${this.baseURL}/chat/completions`;
     // DEBUG: log request shape
-    const fs2 = await import("node:fs");
-    fs2.appendFileSync("/tmp/wenlu_sse_raw.log", `\n--- REQUEST ${new Date().toISOString()} ---\nmodel=${body.model} msgs=${body.messages?.length} tools=${body.tools?.length ?? 0} stream=${body.stream}\nmsg[0].role=${body.messages?.[0]?.role} msg[0].content.len=${typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content.length : 'non-str'}\n`);
+    appendDebugLog(
+      "wenlu_sse_raw.log",
+      `\n--- REQUEST ${new Date().toISOString()} ---\nmodel=${body.model} msgs=${body.messages?.length} tools=${body.tools?.length ?? 0} stream=${body.stream}\nmsg[0].role=${body.messages?.[0]?.role} msg[0].content.len=${typeof body.messages?.[0]?.content === "string" ? body.messages[0].content.length : "non-str"}\n`,
+    );
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -351,10 +354,15 @@ export class Gpt54Provider implements LLM_Provider {
     try {
       const rawSse = await readStreamToText(response);
       // DEBUG: dump raw SSE to file
-      const fs3 = await import("node:fs");
-      fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `\n=== ${new Date().toISOString()} rawSse len=${rawSse.length} ===\n${rawSse.slice(0, 2000)}\n`);
+      appendDebugLog(
+        "wenlu_sse_raw.log",
+        `\n=== ${new Date().toISOString()} rawSse len=${rawSse.length} ===\n${rawSse.slice(0, 2000)}\n`,
+      );
       const parsed = parseSseStream(rawSse);
-      fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `parsed: content="${parsed.content.slice(0,200)}" toolCalls=${parsed.toolCalls.length}\n`);
+      appendDebugLog(
+        "wenlu_sse_raw.log",
+        `parsed: content="${parsed.content.slice(0, 200)}" toolCalls=${parsed.toolCalls.length}\n`,
+      );
       return parsed;
     } catch (cause) {
       const reason =

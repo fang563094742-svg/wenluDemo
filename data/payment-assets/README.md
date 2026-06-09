@@ -1,15 +1,8 @@
-# payment-assets 当前主入口说明
+# payment-assets 模板说明
 
-当前真实主入口文件：
-- 微信：`wechat-pay.jpg`
-- 支付宝：`alipay-pay.jpg`
+该目录只保留支付素材结构说明，不应保留上一位开发者的真实收款码、备份图或原始图片。
 
-兼容文件：
-- `wechat-pay.png`
-- `alipay-pay.png`
-
-使用约定：
-1. 对外默认直接发送 `.jpg` 主文件。
-2. `data/payment-config.json` 当前已指向 `.jpg` 主文件。
-3. 若后续替换真实收款码，优先覆盖主文件名，避免调用端再次改路径。
-4. 原始素材或历史版本放入 `backups/` 或 `incoming/`，不要改动主入口命名规则。
+建议约定：
+1. 当前开发者如需本地测试支付素材，可在本机自行放入对应文件，但不要提交到仓库。
+2. `data/payment-config.json` 应保持模板或中性配置，不要绑定上一位开发者的真实素材路径和话术。
+3. `incoming/`、`backups/` 仅作为本地临时中转目录使用，提交前应为空。

@@ -11,6 +11,7 @@
     "build": "tsc",
     "start": "tsx src/index.ts",
     "river": "export $(cat .env | xargs) && npx tsx src/riverMain.ts",
+    "river:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-river-windows.ps1",
     "river:build": "tsc && export $(cat .env | xargs) && node dist/src/riverMain.js",
     "test": "vitest run",
     "test:watch": "vitest",
