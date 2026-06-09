@@ -33,7 +33,7 @@
 
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { stat, writeFile, readFile, mkdir, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { extname, resolve as resolvePath, dirname, basename, resolve } from "node:path";
@@ -3018,7 +3018,14 @@ export async function main(): Promise<void> {
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void { const b = JSON.stringify(data); res.writeHead(status, { "Content-Type": "application/json" }); res.end(b); }
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> { return new Promise((r) => { const c: Buffer[] = []; let s = 0; req.on("data", (d: Buffer) => { s += d.length; if (s > 1e6) { req.destroy(); r(null); return; } c.push(d); }); req.on("end", () => { if (!s) { r(null); return; } try { r(JSON.parse(Buffer.concat(c).toString())); } catch { r(null); } }); req.on("error", () => r(null)); }); }
-const PUBLIC_DIR = resolvePath(process.cwd(), "public");
+// 前端目录：优先用工程内 public/（合体布局）；若不存在则回退到并列的 ../wenluDemoWeb（前后端分离布局）。
+const PUBLIC_DIR = (() => {
+  const local = resolvePath(process.cwd(), "public");
+  if (existsSync(local)) return local;
+  const sibling = resolvePath(process.cwd(), "..", "wenluDemoWeb");
+  if (existsSync(sibling)) return sibling;
+  return local;
+})();
 const CT: Record<string, string> = { ".html": "text/html;charset=utf-8", ".js": "text/javascript;charset=utf-8", ".css": "text/css;charset=utf-8" };
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> { let p: string; try { p = new URL(req.url ?? "/", "http://x").pathname; } catch { p = "/"; } if (p === "/" || !p) p = "/index.html"; const f = resolvePath(PUBLIC_DIR, "." + p); if (!f.startsWith(resolvePath(PUBLIC_DIR))) { res.writeHead(403); res.end(); return; } let ok = false; try { ok = (await stat(f)).isFile(); } catch {} if (!ok) { res.writeHead(404); res.end(); return; } res.writeHead(200, { "Content-Type": CT[extname(f).toLowerCase()] ?? "application/octet-stream", "Cache-Control": "no-cache" }); if (req.method === "HEAD") { res.end(); return; } createReadStream(f).pipe(res); }
 
