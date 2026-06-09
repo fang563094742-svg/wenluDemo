@@ -14,7 +14,7 @@ import { findUserByPhone, createUser, findUserById, findOrCreateWechatUser } fro
 import { inheritCapabilities } from "../capability-pool/repo.js";
 import { codeToToken, getWechatUserInfo, isMockMode } from "./wechatService.js";
 
-export const authRouter = Router();
+export const authRouter: Router = Router();
 
 /**
  * 发送验证码。

@@ -10,7 +10,8 @@
  *  - 纯只读采集，绝不修改系统状态。
  *  - 剪贴板：跳过疑似密码/密钥内容，仅取前 200 字符。
  *  - 日历：仅取标题和时间，不含备注/描述/参与者邮箱。
- *  - 所有外部命令设 5s 超时，失败时静默降级（返回空/null）。
+ *  - 这些都属于**可选增强信号**：必须受严格延迟预算约束，绝不能拖慢主扫描。
+ *    因此外部命令采用**短超时**，失败时静默降级（返回空/null）。
  */
 
 import { execFile } from "node:child_process";
@@ -23,7 +24,17 @@ import type {
 } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const TIMEOUT_MS = 5000;
+/**
+ * 可选增强信号的延迟预算（ms）。
+ *
+ * 设计意图：
+ * - 主扫描的核心价值在「文件 / git / App 元信息」；日历 / 剪贴板 / 前台窗口属于附加感知。
+ * - 若系统权限弹窗、TCC 拒绝或 AppleScript 卡顿，这些感知器绝不能把整轮扫描拖到数秒级。
+ * - 因此这里使用**短超时**：宁可快速降级为空，也不阻塞主流程。
+ */
+const CALENDAR_TIMEOUT_MS = 350;
+const CLIPBOARD_TIMEOUT_MS = 250;
+const FRONT_WINDOW_TIMEOUT_MS = 400;
 const MAX_BUFFER = 1024 * 1024;
 
 /** 剪贴板预览最大字符数。 */
@@ -83,7 +94,7 @@ export async function collectCalendarEvents(): Promise<CalendarEvent[]> {
 
   try {
     const { stdout } = await execFileAsync("osascript", ["-e", script], {
-      timeout: TIMEOUT_MS,
+      timeout: CALENDAR_TIMEOUT_MS,
       maxBuffer: MAX_BUFFER,
     });
 
@@ -120,7 +131,7 @@ export async function collectClipboard(): Promise<ClipboardSnapshot | null> {
 
   try {
     const { stdout } = await execFileAsync("pbpaste", [], {
-      timeout: TIMEOUT_MS,
+      timeout: CLIPBOARD_TIMEOUT_MS,
       maxBuffer: MAX_BUFFER,
     });
 
@@ -168,7 +179,7 @@ export async function collectFrontWindow(): Promise<FrontWindow | null> {
 
   try {
     const { stdout } = await execFileAsync("osascript", ["-e", script], {
-      timeout: TIMEOUT_MS,
+      timeout: FRONT_WINDOW_TIMEOUT_MS,
       maxBuffer: MAX_BUFFER,
     });
 

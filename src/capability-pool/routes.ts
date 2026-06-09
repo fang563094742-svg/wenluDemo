@@ -20,7 +20,7 @@ import {
   getUserInheritedCapabilities,
 } from "./repo.js";
 
-export const capabilityRouter = Router();
+export const capabilityRouter: Router = Router();
 
 // 所有路由都需要登录
 capabilityRouter.use(requireAuth);
