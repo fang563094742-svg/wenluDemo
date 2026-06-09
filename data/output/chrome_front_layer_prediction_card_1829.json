@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-06-09 09:57 CST",
+  "frontTruth": {
+    "app": "Google Chrome",
+    "title": "设置 - JavaScript",
+    "url": "chrome://settings/content/javascript",
+    "layer": "current-front-truth"
+  },
+  "historyEvidence": [
+    {
+      "url": "https://channels.weixin.qq.com/platform/post/create",
+      "finalUrl": "https://channels.weixin.qq.com/platform/post/create",
+      "status": 200,
+      "bodyKeywords": [
+        "视频号助手"
+      ],
+      "layer": "historical-strong-shell"
+    },
+    {
+      "url": "https://weibo.com/newlogin?tabtype=weibo&gid=102803&openLoginLayer=0&url=https://weibo.com/",
+      "finalUrl": "https://passport.weibo.com/visitor/visitor?entry=miniblog&a=enter&url=https%3A%2F%2Fweibo.com%2Fnewlogin%3Ftabtype%3Dweibo%26gid%3D102803%26openLoginLayer%3D0%26url%3Dhttps%3A%2F%2Fweibo.com%2F&domain=weibo.com&ua=Python-urllib%2F3.9&_rand=1780970406566&sudaref=",
+      "status": 200,
+      "bodyKeywords": [
+        "Sina Visitor System"
+      ],
+      "layer": "historical-login-shell"
+    },
+    {
+      "url": "https://web.wechat.com/",
+      "finalUrl": "https://web.wechat.com/",
+      "status": 200,
+      "bodyKeywords": [
+        "WeChat/Weixin for Web"
+      ],
+      "layer": "historical-public-shell"
+    },
+    {
+      "url": "https://web.okjike.com/publish",
+      "finalUrl": "https://web.okjike.com/publish",
+      "status": 200,
+      "bodyKeywords": [
+        "即刻"
+      ],
+      "layer": "historical-public-shell"
+    },
+    {
+      "url": "https://www.xiaohongshu.com/publish/publish",
+      "finalUrl": "https://www.xiaohongshu.com/404?source=/publish/publish",
+      "status": 200,
+      "bodyKeywords": [
+        "404?source=/publish/publish"
+      ],
+      "layer": "historical-failure-shell"
+    }
+  ],
+  "predictions": [
+    1,
+    2,
+    3
+  ]
+}

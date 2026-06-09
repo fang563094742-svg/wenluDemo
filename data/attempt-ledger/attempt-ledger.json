@@ -1,0 +1,26 @@
+{
+  "title": "1万元目标外部尝试证据账本",
+  "updatedAt": "2026/6/8 17:52:28",
+  "targetAmount": 10000,
+  "records": [
+    {
+      "id": "attempt-1780912348758",
+      "createdAt": "2026/6/8 17:52:28",
+      "updatedAt": "2026/6/8 17:52:28",
+      "targetAmount": 10000,
+      "channel": "待补",
+      "counterpart": "待补真实对象",
+      "demandSummary": "把下一次真实外部尝试填进来，禁止空口进展。",
+      "stage": "attempted",
+      "outcome": {
+        "status": "pending",
+        "nextAction": "用真实渠道、对象、需求、证据替换本条占位记录。"
+      },
+      "evidence": [],
+      "tags": [
+        "占位",
+        "待补证"
+      ]
+    }
+  ]
+}

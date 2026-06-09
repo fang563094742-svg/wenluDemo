@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-06-09 04:09:54 CST",
+  "items": [
+    {
+      "sourceUrl": "https://web.wechat.com/",
+      "finalUrl": "https://web.wechat.com/",
+      "httpStatus": 200,
+      "keywords": ["WeChat/Weixin for Web", "微信", "Scan to log in"],
+      "layer": "historical-login-shell"
+    },
+    {
+      "sourceUrl": "https://web.okjike.com/publish",
+      "finalUrl": "https://web.okjike.com/publish",
+      "httpStatus": 200,
+      "keywords": ["即刻"],
+      "layer": "historical-public-weak"
+    },
+    {
+      "sourceUrl": "https://channels.weixin.qq.com/platform/post/create",
+      "finalUrl": "https://channels.weixin.qq.com/platform/post/create",
+      "httpStatus": 200,
+      "keywords": ["视频号助手", "finder-helper-web"],
+      "layer": "historical-create-shell-strong"
+    },
+    {
+      "sourceUrl": "https://weibo.com/",
+      "finalUrl": "https://passport.weibo.com/visitor/visitor?entry=miniblog&a=enter&url=https%3A%2F%2Fweibo.com%2F&domain=weibo.com&ua=Mozilla%2F5.0%20WenLuHistoryProbe%2F1.0&_rand=1780949388457&sudaref=",
+      "httpStatus": 200,
+      "keywords": ["Sina Visitor System", "visitor"],
+      "layer": "historical-login-shell"
+    },
+    {
+      "sourceUrl": "https://www.xiaohongshu.com/publish/publish",
+      "finalUrl": "https://www.xiaohongshu.com/404?source=/publish/publish",
+      "httpStatus": 200,
+      "keywords": ["你访问的页面不见了", "404", "小红书"],
+      "layer": "historical-failure-shell"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-06-08",
+  "goal": "联网学习 AI agent 最新工作流与赚钱切口，压成一张会改变默认动作的公开互联网进化卡",
+  "sources": [
+    {
+      "title": "Building effective agents",
+      "publisher": "Anthropic",
+      "url": "https://www.anthropic.com/news/building-effective-agents",
+      "keyTakeaway": "Successful agentic systems usually rely on simple, composable patterns instead of unnecessary framework complexity."
+    },
+    {
+      "title": "Introducing the Model Context Protocol",
+      "publisher": "Anthropic",
+      "url": "https://www.anthropic.com/news/model-context-protocol",
+      "keyTakeaway": "MCP is an open standard for connecting AI systems to real data sources and tools."
+    },
+    {
+      "title": "LangGraph overview",
+      "publisher": "LangChain",
+      "url": "https://docs.langchain.com/oss/python/langgraph/overview",
+      "keyTakeaway": "Production-grade agents need orchestration capabilities like persistence, streaming, and human-in-the-loop."
+    }
+  ],
+  "workflowConclusions": [
+    "先 workflow，后 autonomy。",
+    "连接器比 prompt 雕花更值钱。",
+    "状态持久化与人工接管是生产门槛。",
+    "公开互联网成交入口要前置。"
+  ],
+  "monetizationCuts": [
+    "垂直微自动化代做",
+    "Agent 化交付服务",
+    "公开流量内容漏斗"
+  ],
+  "defaultActionsChanged": [
+    "先找公开真实需求，再决定学什么 agent。",
+    "先做最小闭环，再追求多代理。",
+    "先卖代做/代跑，再等标准产品。",
+    "先记录外部结果，再宣称进化。"
+  ]
+}

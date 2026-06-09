@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-06-08T23:29:52.584Z",
+  "thesis": "更强判断只在三层同时成立时有效：Safari 当前前台真值、公开入口当前可达性、以及公开需求扫描落盘旁证；任何跨层偷换都作废。",
+  "frontTruth": {
+    "app": "Safari",
+    "url": "http://127.0.0.1:3210/",
+    "title": "问路",
+    "source": "live Safari front tab probe"
+  },
+  "publicEntryChecks": [
+    {
+      "name": "微信网页版公开入口",
+      "url": "https://web.wechat.com/",
+      "scope": "只证明公开入口可达，不等于已登录或可发送。",
+      "expectedStatus": 200,
+      "status": 200,
+      "ok": true,
+      "verification": "curl --noproxy '*' -L -s -o /dev/null -w '%{http_code}' https://web.wechat.com/"
+    },
+    {
+      "name": "即刻发布页公开入口",
+      "url": "https://web.okjike.com/publish",
+      "scope": "只证明发布入口可达，不等于账号态可发布。",
+      "expectedStatus": 200,
+      "status": 200,
+      "ok": true,
+      "verification": "curl --noproxy '*' -L -s -o /dev/null -w '%{http_code}' https://web.okjike.com/publish"
+    },
+    {
+      "name": "视频号助手发帖入口",
+      "url": "https://channels.weixin.qq.com/platform/post/create",
+      "scope": "只证明创建页直连可达，不等于已进入可发态。",
+      "expectedStatus": 200,
+      "status": 200,
+      "ok": true,
+      "verification": "curl --noproxy '*' -L -s -o /dev/null -w '%{http_code}' https://channels.weixin.qq.com/platform/post/create"
+    },
+    {
+      "name": "微博公开首页入口",
+      "url": "https://weibo.com/",
+      "scope": "只证明微博外网入口可达，不等于已登录或可发。",
+      "expectedStatus": 200,
+      "status": 200,
+      "ok": true,
+      "verification": "curl --noproxy '*' -L -s -o /dev/null -w '%{http_code}' https://weibo.com/"
+    },
+    {
+      "name": "小红书发布页公开入口",
+      "url": "https://www.xiaohongshu.com/publish/publish",
+      "scope": "只证明发布壳可达，不等于已进入发布权限页。",
+      "expectedStatus": 200,
+      "status": 200,
+      "ok": true,
+      "verification": "curl --noproxy '*' -L -s -o /dev/null -w '%{http_code}' https://www.xiaohongshu.com/publish/publish"
+    }
+  ],
+  "demandScan": {
+    "dir": "artifacts/public-demand-scan-1780943346983",
+    "source": "https://sxsapi.com/",
+    "scannedAt": "2026/6/9 02:29:06",
+    "totalParsed": 9,
+    "shortlisted": 3,
+    "topLead": {
+      "title": "识别真假冬虫夏草的系统",
+      "budget": "待商议",
+      "deadline": "商议工期",
+      "url": "https://sxsapi.com/post/860",
+      "fit": "high"
+    }
+  },
+  "hardBoundaries": [
+    "前台真值只认本轮 Safari 当前标签，不认历史记忆。",
+    "HTTP 200 只证明公开入口可达，不证明登录态、发送权或发布权。",
+    "公开需求扫描只证明外部样本已落盘，不等于当前前台就在该公开站点。",
+    "必须把前台层、公开入口层、需求落盘层分别写明，禁止混成一句“已可用”。"
+  ],
+  "reusableSkeleton": [
+    "先取 Safari 当前前台应用、标题与 URL，锁死现场真值。",
+    "再批量复核公开入口 HTTP 状态，记录边界说明与验证命令。",
+    "再寻找最近一次公开需求扫描产物，确认外部样本已经结构化落盘。",
+    "把三层同时压成一张卡，并附一条退出码验证脚本作为下轮真值门槛。"
+  ],
+  "nextVerifiableTask": {
+    "id": "vt-public-layered-frontdesk-3210",
+    "goal": "Safari 当前前台仍是 3210，五个公开入口同时可达，且最近公开需求扫描旁证仍已落盘。",
+    "verifyCmd": "bash task_output/verify_public_layered_frontdesk.sh",
+    "difficulty": 4
+  }
+}

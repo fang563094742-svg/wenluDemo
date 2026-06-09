@@ -1,0 +1,247 @@
+[
+  {
+    "path": "scripts/alipayMaterialClosure.ts",
+    "name": "alipayMaterialClosure.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/alipayMaterialClosure.ts",
+    "reuseCommand": "npx tsx scripts/alipayMaterialClosure.ts"
+  },
+  {
+    "path": "scripts/buildBinary.ts",
+    "name": "buildBinary.ts",
+    "type": "script",
+    "summary": "",
+    "reuseCommand": "npx tsx scripts/buildBinary.ts"
+  },
+  {
+    "path": "scripts/capabilityFrontdesk.ts",
+    "name": "capabilityFrontdesk.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/capabilityFrontdesk.ts",
+    "reuseCommand": "npx tsx scripts/capabilityFrontdesk.ts"
+  },
+  {
+    "path": "scripts/capabilityReport.ts",
+    "name": "capabilityReport.ts",
+    "type": "script",
+    "summary": "const preferred = lines.find((line) => line.startsWith(\"* \") || line.startsWith(\"- \") || line.startsWith(\"目标\") || line.s",
+    "reuseCommand": "npx tsx scripts/capabilityReport.ts"
+  },
+  {
+    "path": "scripts/cashPathLocalhostScan.py",
+    "name": "cashPathLocalhostScan.py",
+    "type": "other",
+    "summary": "可执行能力入口：scripts/cashPathLocalhostScan.py",
+    "reuseCommand": "scripts/cashPathLocalhostScan.py"
+  },
+  {
+    "path": "scripts/cognitiveUpgradeLaw.ts",
+    "name": "cognitiveUpgradeLaw.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/cognitiveUpgradeLaw.ts",
+    "reuseCommand": "npx tsx scripts/cognitiveUpgradeLaw.ts"
+  },
+  {
+    "path": "scripts/copyCompressor.ts",
+    "name": "copyCompressor.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/copyCompressor.ts",
+    "reuseCommand": "npx tsx scripts/copyCompressor.ts"
+  },
+  {
+    "path": "scripts/dealAccelerator.ts",
+    "name": "dealAccelerator.ts",
+    "type": "script",
+    "summary": "原始询单",
+    "reuseCommand": "npx tsx scripts/dealAccelerator.ts"
+  },
+  {
+    "path": "scripts/executorControlSurface.ts",
+    "name": "executorControlSurface.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/executorControlSurface.ts",
+    "reuseCommand": "npx tsx scripts/executorControlSurface.ts"
+  },
+  {
+    "path": "scripts/finalExecutionCard.ts",
+    "name": "finalExecutionCard.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/finalExecutionCard.ts",
+    "reuseCommand": "npx tsx scripts/finalExecutionCard.ts"
+  },
+  {
+    "path": "scripts/install-execution-stack.sh",
+    "name": "install-execution-stack.sh",
+    "type": "shell",
+    "summary": "可执行能力入口：scripts/install-execution-stack.sh",
+    "reuseCommand": "scripts/install-execution-stack.sh"
+  },
+  {
+    "path": "scripts/learningLine.ts",
+    "name": "learningLine.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/learningLine.ts",
+    "reuseCommand": "npx tsx scripts/learningLine.ts"
+  },
+  {
+    "path": "scripts/patch-final-card.mjs",
+    "name": "patch-final-card.mjs",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/patch-final-card.mjs",
+    "reuseCommand": "scripts/patch-final-card.mjs"
+  },
+  {
+    "path": "scripts/paymentAssetInjector.ts",
+    "name": "paymentAssetInjector.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/paymentAssetInjector.ts",
+    "reuseCommand": "npx tsx scripts/paymentAssetInjector.ts"
+  },
+  {
+    "path": "scripts/probeBig.ts",
+    "name": "probeBig.ts",
+    "type": "script",
+    "summary": "临时探针：用大请求体（模拟真实扫描摘要）跑 complete，复现 fetch failed。 */",
+    "reuseCommand": "npx tsx scripts/probeBig.ts"
+  },
+  {
+    "path": "scripts/probeProvider.ts",
+    "name": "probeProvider.ts",
+    "type": "script",
+    "summary": "临时探针（非交付物）：用真实 Gpt54Provider 直连端点跑一次 complete，打印完整错误链。 */",
+    "reuseCommand": "npx tsx scripts/probeProvider.ts"
+  },
+  {
+    "path": "scripts/publicDemandScanner.ts",
+    "name": "publicDemandScanner.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/publicDemandScanner.ts",
+    "reuseCommand": "npx tsx scripts/publicDemandScanner.ts"
+  },
+  {
+    "path": "scripts/responseStrategyLine.ts",
+    "name": "responseStrategyLine.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/responseStrategyLine.ts",
+    "reuseCommand": "npx tsx scripts/responseStrategyLine.ts"
+  },
+  {
+    "path": "scripts/serve.sh",
+    "name": "serve.sh",
+    "type": "shell",
+    "summary": "可执行能力入口：scripts/serve.sh",
+    "reuseCommand": "scripts/serve.sh"
+  },
+  {
+    "path": "scripts/singleSourceDealLaw.ts",
+    "name": "singleSourceDealLaw.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/singleSourceDealLaw.ts",
+    "reuseCommand": "npx tsx scripts/singleSourceDealLaw.ts"
+  },
+  {
+    "path": "scripts/toolJudgmentLaw.ts",
+    "name": "toolJudgmentLaw.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/toolJudgmentLaw.ts",
+    "reuseCommand": "npx tsx scripts/toolJudgmentLaw.ts"
+  },
+  {
+    "path": "scripts/verifyNoLegacyFallbackLaw.ts",
+    "name": "verifyNoLegacyFallbackLaw.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/verifyNoLegacyFallbackLaw.ts",
+    "reuseCommand": "npx tsx scripts/verifyNoLegacyFallbackLaw.ts"
+  },
+  {
+    "path": "scripts/verifyPublicDemandStructured.ts",
+    "name": "verifyPublicDemandStructured.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/verifyPublicDemandStructured.ts",
+    "reuseCommand": "npx tsx scripts/verifyPublicDemandStructured.ts"
+  },
+  {
+    "path": "scripts/快钱收口分诊脚本说明.md",
+    "name": "快钱收口分诊脚本说明.md",
+    "type": "doc",
+    "summary": "目标：把“收到线索 → 给出首条收口回复 → 直接推进报价/追问/定金”压成一条命令，优先服务当天小单收口。",
+    "reuseCommand": "open \"scripts/快钱收口分诊脚本说明.md\""
+  },
+  {
+    "path": "scripts/成交压缩能力说明.md",
+    "name": "成交压缩能力说明.md",
+    "type": "doc",
+    "summary": "目标：把现有成交/服务单页，自动压成更短的即发版平台帖与私聊首回，并沉淀为可复用动作。",
+    "reuseCommand": "open \"scripts/成交压缩能力说明.md\""
+  },
+  {
+    "path": "tools/execution-stack/bin/task",
+    "name": "task",
+    "type": "shell",
+    "summary": "38--->nsusms\\x00µTZ25\\a\\b\\f\\n\\r\\t\\v\\u] (\"\")) )",
+    "reuseCommand": "bash tools/execution-stack/bin/task"
+  },
+  {
+    "path": "tools/execution-stack/install-execution-stack.sh",
+    "name": "install-execution-stack.sh",
+    "type": "shell",
+    "summary": "可执行能力入口：tools/execution-stack/install-execution-stack.sh",
+    "reuseCommand": "bash tools/execution-stack/install-execution-stack.sh"
+  },
+  {
+    "path": "tools/execution-stack/n8n/package-lock.json",
+    "name": "package-lock.json",
+    "type": "other",
+    "summary": "可执行能力入口：tools/execution-stack/n8n/package-lock.json",
+    "reuseCommand": "tools/execution-stack/n8n/package-lock.json"
+  },
+  {
+    "path": "tools/execution-stack/n8n/package.json",
+    "name": "package.json",
+    "type": "other",
+    "summary": "可执行能力入口：tools/execution-stack/n8n/package.json",
+    "reuseCommand": "tools/execution-stack/n8n/package.json"
+  },
+  {
+    "path": "tools/execution-stack/package-lock.json",
+    "name": "package-lock.json",
+    "type": "other",
+    "summary": "可执行能力入口：tools/execution-stack/package-lock.json",
+    "reuseCommand": "tools/execution-stack/package-lock.json"
+  },
+  {
+    "path": "tools/execution-stack/package.json",
+    "name": "package.json",
+    "type": "other",
+    "summary": "可执行能力入口：tools/execution-stack/package.json",
+    "reuseCommand": "tools/execution-stack/package.json"
+  },
+  {
+    "path": "tools/execution-stack/task_darwin_arm64.tar.gz",
+    "name": "task_darwin_arm64.tar.gz",
+    "type": "other",
+    "summary": "可执行能力入口：tools/execution-stack/task_darwin_arm64.tar.gz",
+    "reuseCommand": "tools/execution-stack/task_darwin_arm64.tar.gz"
+  },
+  {
+    "path": "tools/front_snapshot/safari_front_snapshot.sh",
+    "name": "safari_front_snapshot.sh",
+    "type": "shell",
+    "summary": "可执行能力入口：tools/front_snapshot/safari_front_snapshot.sh",
+    "reuseCommand": "bash tools/front_snapshot/safari_front_snapshot.sh"
+  },
+  {
+    "path": "tools/tools/execution-stack/bin/task",
+    "name": "task",
+    "type": "shell",
+    "summary": "38--->nsusms\\x00µTZ25\\a\\b\\f\\n\\r\\t\\v\\u] (\"\")) )",
+    "reuseCommand": "bash tools/tools/execution-stack/bin/task"
+  },
+  {
+    "path": "tools/tools/execution-stack/task_darwin_arm64.tar.gz",
+    "name": "task_darwin_arm64.tar.gz",
+    "type": "other",
+    "summary": "可执行能力入口：tools/tools/execution-stack/task_darwin_arm64.tar.gz",
+    "reuseCommand": "tools/tools/execution-stack/task_darwin_arm64.tar.gz"
+  }
+]

@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-06-09 09:16:21 CST",
+  "status": "唯一现行",
+  "topic": "同主题下历史页/当前页分层纠偏",
+  "currentFrontTruth": {
+    "app": "Safari",
+    "url": "http://127.0.0.1:3210/"
+  },
+  "historicalPublicEvidence": [
+    "https://channels.weixin.qq.com/platform/post/create",
+    "https://web.wechat.com/",
+    "https://web.okjike.com/publish",
+    "https://login.sina.com.cn/visitor/visitor"
+  ],
+  "historicalFailedEvidence": [
+    "https://www.xiaohongshu.com/publish/publish"
+  ],
+  "voidedClaims": [
+    "把历史公开页、登录壳、发布壳直接写成当前正在操作的页",
+    "未先报当前前台真值就直接展开历史页比较",
+    "仅凭原始URL、HTTP 200或旧卡记忆就把历史页写成当前可发/当前可操作",
+    "把视频号create、微博visitor、即刻publish、WeChat Web、小红书publish并列称为当前页候选"
+  ],
+  "defaultReplyOrder": [
+    "当前前台唯一真值：Safari http://127.0.0.1:3210/",
+    "再写历史公开旁证/历史失败壳旁证",
+    "无新前台快照不得把历史旁证升级为当前页",
+    "当前前台变化时先处决本卡再重写"
+  ],
+  "sourceCards": [
+    "task_output/current-front-layering/safari_current_vs_history_prediction_card.md",
+    "task_output/layered-judgment-law/latest-layered-judgment-law.md",
+    "data/output/latest-history-final-url-layered-card.md",
+    "data/output/history-layered-min-card-20260609-041749.md",
+    "data/output/safari-3210-history-layered-evidence-card.md",
+    "data/output/latest-safari-3210-strong-weak-fail-single-card.md",
+    "data/output/第1686次呼吸-当前前台与历史旁证三层判断卡.md"
+  ]
+}

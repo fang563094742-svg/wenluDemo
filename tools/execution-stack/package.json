@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.168",
+    "@modelcontextprotocol/inspector": "^0.22.0",
+    "@openai/codex": "^0.137.0",
+    "zx": "^8.8.5"
+  }
+}

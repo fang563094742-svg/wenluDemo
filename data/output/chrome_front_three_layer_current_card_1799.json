@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-06-09 09:08:06 CST",
+  "frontTruth": {
+    "app": "Google Chrome",
+    "title": "codex-chrome-js-ok",
+    "url": "data:text/html,<title>codex-chrome-js-ok</title><h1>ok</h1>",
+    "layer": "current-front-truth"
+  },
+  "evidence": [
+    {
+      "layer": "historical-strong-shell",
+      "url": "https://channels.weixin.qq.com/platform/post/create",
+      "finalUrl": "https://channels.weixin.qq.com/platform/post/create",
+      "httpStatus": 200,
+      "keywordsExpected": [
+        "finder-helper-web",
+        "JavaScript enabled"
+      ],
+      "keywordsFound": [
+        "finder-helper-web",
+        "JavaScript enabled"
+      ],
+      "error": null
+    },
+    {
+      "layer": "historical-login-shell",
+      "url": "https://login.sina.com.cn/visitor/visitor?a=crossdomain&s=_2AkMdeSyxf8NxqwFRm_ARxG3nbotzzQjEieKrJd1qJRMxHRl-yT9yqk1StRB6NvkCXizMI_AX8TgVij9ooT9hjkOthq9g&sp=0033WrSXqPxfM72-Ws9jqgMF55529P9D9W5CdznTJU6UodG8yQaEv2Oy&from=weibo&_rand=0.614295351125&entry=miniblog&url=https%3A%2F%2Fweibo.com%2F",
+      "finalUrl": "https://passport.weibo.com/visitor/visitor?entry=miniblog&a=enter&url=https%3A%2F%2Fweibo.com%2F&domain=weibo.com&ua=Mozilla%2F5.0&_rand=1780967286109&sudaref=",
+      "httpStatus": 200,
+      "keywordsExpected": [
+        "weibo.com",
+        "visitor"
+      ],
+      "keywordsFound": [
+        "weibo.com",
+        "visitor"
+      ],
+      "error": null
+    },
+    {
+      "layer": "historical-failure-shell",
+      "url": "https://www.xiaohongshu.com/publish/publish",
+      "finalUrl": "https://www.xiaohongshu.com/404?source=/publish/publish",
+      "httpStatus": 200,
+      "keywordsExpected": [
+        "你访问的页面不见了",
+        "自动返回首页"
+      ],
+      "keywordsFound": [
+        "你访问的页面不见了",
+        "自动返回首页"
+      ],
+      "error": null
+    }
+  ],
+  "judgment": {
+    "currentFrontOnly": "data:text/html,<title>codex-chrome-js-ok</title><h1>ok</h1>",
+    "historicalStrongShell": "https://channels.weixin.qq.com/platform/post/create",
+    "historicalLoginShell": "https://login.sina.com.cn/visitor/visitor?...",
+    "historicalFailureShell": "https://www.xiaohongshu.com/publish/publish"
+  }
+}

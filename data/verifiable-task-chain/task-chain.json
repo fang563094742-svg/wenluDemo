@@ -1,0 +1,30 @@
+[
+  {
+    "id": "vt-chain-bootstrap",
+    "goal": "把外部可客观验证任务链固定为可复跑资产，并验证产物已落盘",
+    "verifyCmd": "test -f data/verifiable-task-chain/task-chain.json && test -f task_output/verifiable-task-chain/latest-verification.json && grep -F '\"id\": \"vt-chain-bootstrap\"' data/verifiable-task-chain/task-chain.json >/dev/null && grep -F '\"passed\": true' task_output/verifiable-task-chain/latest-verification.json >/dev/null",
+    "difficulty": 2,
+    "createdAt": "2026-06-08T09:47:32.208Z"
+  },
+  {
+    "id": "vt-layered-judgment-law-min-source",
+    "goal": "当前前台真值、历史公开旁证与单文件最小判断法源必须由同一验证脚本同时复核通过。",
+    "verifyCmd": "bash task_output/layered-judgment-law/verify_layered_judgment_law.sh",
+    "difficulty": 4,
+    "createdAt": "2026-06-08T22:40:30.767Z"
+  },
+  {
+    "id": "vt-public-layered-frontdesk-3210",
+    "goal": "Safari 当前前台仍是 3210，五个公开入口同时可达，且最近公开需求扫描旁证仍已落盘。",
+    "verifyCmd": "bash task_output/verify_public_layered_frontdesk.sh",
+    "difficulty": 4,
+    "createdAt": "2026-06-08T17:10:12.591Z"
+  },
+  {
+    "id": "vt1780949959328",
+    "goal": "Safari 前台真值、五个公开入口 HTTP 200、以及最新公开需求扫描目录必须彼此一致并由单脚本复核通过。",
+    "verifyCmd": "bash data/output/verify_front_truth_boundary_chain.sh",
+    "difficulty": 5,
+    "createdAt": "2026-06-08T20:20:00.473Z"
+  }
+]
