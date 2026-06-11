@@ -13,8 +13,8 @@
  */
 
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
 import * as path from "node:path";
+import { resolveDataDir } from "../config/dataDir.js";
 import type { ScanSnapshot } from "../scanner/deepScan.js";
 
 // ===========================================================================
@@ -78,7 +78,7 @@ export interface WenluMemory {
 // 路径
 // ===========================================================================
 
-const WENLU_DIR = path.join(homedir(), ".wenlu");
+const WENLU_DIR = resolveDataDir();
 const MEMORY_FILE = path.join(WENLU_DIR, "memory.json");
 
 // ===========================================================================

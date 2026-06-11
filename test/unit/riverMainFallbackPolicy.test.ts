@@ -1,26 +1,36 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-const riverMain = readFileSync('src/riverMain.ts', 'utf-8');
+describe("riverMain anti-backslide policy", () => {
+  const riverMain = readFileSync(resolve(process.cwd(), "src/riverMain.ts"), "utf-8");
 
-describe('riverMain fallback reply policy', () => {
-  it('does not use default soothing catchphrase as fallback reply', () => {
-    expect(riverMain).not.toContain('const fallback = messages.length > 1 ? "嗯，我在。" : "嗯，我在。";');
-    expect(riverMain).not.toContain('return "嗯，我在。"');
+  it("contains direct-execution suppression patterns", () => {
+    expect(riverMain).toContain("不要问我选项");
+    expect(riverMain).toContain("直接检查你最近的失败簇并开始修");
   });
 
-  it('documents policy to avoid soothing opener regression under pressure', () => {
-    expect(riverMain).toContain('禁止滑回默认安抚口头禅');
-    expect(riverMain).toContain('不做情绪安抚式起手');
+  it("documents direct-fix-first law in the system prompt", () => {
+    expect(riverMain).toContain("直接修复优先：如果用户刚明确要求“先动手/开始修/不要问选项/检查失败簇”");
   });
 
-  it('does not keep a fixed fallback sentence template assembly', () => {
-    expect(riverMain).not.toContain('const fallbackParts = [');
-    expect(riverMain).not.toContain("const fallback = fallbackParts.join(' ');");
+  it("suppresses calibration using recent user messages, not only the latest one", () => {
+    expect(riverMain).toContain("function getRecentUserMessages(limit = 3): string[]");
+    expect(riverMain).toContain("const recentUserMessages = getRecentUserMessages();");
   });
 
-  it('requires fallback to be generated from live state instead of canned copy', () => {
-    expect(riverMain).toContain('buildMinimalFallbackReply(');
-    expect(riverMain).toContain('不能复用旧安抚口头禅');
+  it("blocks reply-user replan replies when direct execution was explicitly requested", () => {
+    expect(riverMain).toContain('if (decision.action === "replan-after-user")');
+    expect(riverMain).toContain("if (!shouldSuppressCalibrationNow(lastUser)) {");
+    expect(riverMain).toContain("onReplanHandled(interactionState, false);");
+  });
+
+  it("installs frontdoor action contract and anti-idle recovery for command-style input", () => {
+    expect(riverMain).toContain("function inferUserIntentSurface(text: string): UserIntentSurface");
+    expect(riverMain).toContain("function buildActionContract(text: string, surface: UserIntentSurface): ActionContract | null");
+    expect(riverMain).toContain("async function runImmediateActionContract(contract: ActionContract): Promise<ImmediateActionReport>");
+    expect(riverMain).toContain("[reply-loop] anti-idle-triggered");
+    expect(riverMain).toContain("inspect_native_apps");
+    expect(riverMain).toContain("focus_native_app");
   });
 });

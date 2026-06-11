@@ -44,6 +44,7 @@ function makeOrch(): OrchestratorActions {
   const anoop = async (): Promise<ActionResult> => ok;
   return {
     getState: () => SessionState.Idle,
+    getSessionSnapshot: () => ({ state: SessionState.Idle, awarenessItems: [], clarifier: undefined, workingDir: undefined } as any),
     scan: anoop,
     acceptAwareness: anoop,
     dismissAwareness: noop,

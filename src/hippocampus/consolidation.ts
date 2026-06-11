@@ -152,7 +152,7 @@ async function distillConcepts(
   const episodeTexts = lowImportance.map(ep => `- ${ep.content}`).join("\n");
 
   const req: LlmRequest = {
-    system: "你是一个记忆整理助手。把多条具体事件归纳为1-2条高层概念（每条不超过50字）。只输出概念，每行一条。",
+    system: "你是未来的我在整理记忆。把多条具体事件归纳为1-2条高层概念（每条不超过50字）。只输出概念，每行一条。",
     messages: [
       {
         role: "user",

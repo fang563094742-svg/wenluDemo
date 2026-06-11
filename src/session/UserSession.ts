@@ -3,12 +3,12 @@
  */
 
 import { resolve as resolvePath } from "node:path";
-import { homedir } from "node:os";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { SseHub } from "../server/sse.js";
 import type { LayeredMemory, InteractionState } from "../hippocampus/index.js";
 import { migrateToLayered } from "../hippocampus/index.js";
 import { createInteractionState } from "../prefrontal.js";
+import { resolveUserDataDir } from "../config/dataDir.js";
 
 // ─── 类型（从 riverMain 中引用的核心 Mind 类型的简化 re-export）───
 export interface Mind {
@@ -48,8 +48,8 @@ export class UserSession {
 
   constructor(userId: string) {
     this.userId = userId;
-    // 每用户独立数据目录
-    this.dataDir = resolvePath(homedir(), ".wenlu", "users", userId);
+    // 每用户独立数据目录（项目内 用户数据/users/<id>，单一来源 config/dataDir）
+    this.dataDir = resolveUserDataDir(userId);
     this.mindFile = resolvePath(this.dataDir, "mind.json");
     this.memoryFile = resolvePath(this.dataDir, "memory.json");
     this.interactionState = createInteractionState();

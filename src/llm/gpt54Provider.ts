@@ -309,9 +309,11 @@ export class Gpt54Provider implements LLM_Provider {
     body: ChatCompletionRequestBody,
   ): Promise<ParsedSseStream> {
     const url = `${this.baseURL}/chat/completions`;
-    // DEBUG: log request shape
-    const fs2 = await import("node:fs");
-    fs2.appendFileSync("/tmp/wenlu_sse_raw.log", `\n--- REQUEST ${new Date().toISOString()} ---\nmodel=${body.model} msgs=${body.messages?.length} tools=${body.tools?.length ?? 0} stream=${body.stream}\nmsg[0].role=${body.messages?.[0]?.role} msg[0].content.len=${typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content.length : 'non-str'}\n`);
+    // DEBUG: log request shape (best-effort, never throw)
+    try {
+      const fs2 = await import("node:fs");
+      fs2.appendFileSync("/tmp/wenlu_sse_raw.log", `\n--- REQUEST ${new Date().toISOString()} ---\nmodel=${body.model} msgs=${body.messages?.length} tools=${body.tools?.length ?? 0} stream=${body.stream}\nmsg[0].role=${body.messages?.[0]?.role} msg[0].content.len=${typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content.length : 'non-str'}\n`);
+    } catch { /* best-effort debug log */ }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -350,11 +352,16 @@ export class Gpt54Provider implements LLM_Provider {
 
     try {
       const rawSse = await readStreamToText(response);
-      // DEBUG: dump raw SSE to file
-      const fs3 = await import("node:fs");
-      fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `\n=== ${new Date().toISOString()} rawSse len=${rawSse.length} ===\n${rawSse.slice(0, 2000)}\n`);
+      // DEBUG: dump raw SSE to file (best-effort, never throw)
+      try {
+        const fs3 = await import("node:fs");
+        fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `\n=== ${new Date().toISOString()} rawSse len=${rawSse.length} ===\n${rawSse.slice(0, 2000)}\n`);
+      } catch { /* best-effort debug log */ }
       const parsed = parseSseStream(rawSse);
-      fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `parsed: content="${parsed.content.slice(0,200)}" toolCalls=${parsed.toolCalls.length}\n`);
+      try {
+        const fs3 = await import("node:fs");
+        fs3.appendFileSync("/tmp/wenlu_sse_raw.log", `parsed: content="${parsed.content.slice(0,200)}" toolCalls=${parsed.toolCalls.length}\n`);
+      } catch { /* best-effort debug log */ }
       return parsed;
     } catch (cause) {
       const reason =
@@ -389,7 +396,7 @@ export function toChatMessages(req: LlmRequest): ChatMessagePayload[] {
   const messages: ChatMessagePayload[] = [];
   if (typeof req.system === "string" && req.system.trim().length > 0) {
     // 只转发上层显式提供的 system 法源；provider 不再偷偷追加统一身份锁，
-    // 避免生成顺序里混入隐藏默认法源，导致回复残留通用助手味与 fallback 惯性。
+    // 避免生成顺序里混入隐藏默认法源，导致回复残留通用模板味与 fallback 惯性。
     messages.push({ role: "system", content: req.system });
   }
   for (const m of req.messages) {

@@ -28,6 +28,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { SessionState } from "../orchestrator/session.js";
+import type { Session } from "../orchestrator/session.js";
 import type { ActionResult } from "../orchestrator/orchestrator.js";
 import type { UserAnswer } from "../clarifier/types.js";
 import type { SseHub } from "./sse.js";
@@ -45,6 +46,8 @@ import type { SseHub } from "./sse.js";
 export interface OrchestratorActions {
   /** 当前会话状态（用于 `/answer` 的二义性分流：澄清答复 vs 阻断性问题答复）。 */
   getState(): SessionState;
+  /** 当前会话完整快照（供 web 打开后恢复状态与生成下一步动作）。 */
+  getSessionSnapshot(): Session;
 
   /** `POST /scan`（R1.1/R1.2）。 */
   scan(): Promise<ActionResult>;
@@ -78,6 +81,61 @@ export interface OrchestratorActions {
   acceptDelivery(): ActionResult;
   /** `POST /recover`（R1.6/R5.6）：从 error 恢复回 idle。 */
   recoverFromError(): ActionResult;
+}
+
+type NextAction = {
+  endpoint: string;
+  label: string;
+  method: "GET" | "POST";
+  payload?: Record<string, unknown>;
+};
+
+function buildNextActions(session: Session): NextAction[] {
+  switch (session.state) {
+    case SessionState.AwarenessPresented: {
+      const firstItem = session.awarenessItems?.[0];
+      return firstItem
+        ? [{ endpoint: "/accept", method: "POST", label: "接受首条察觉", payload: { itemId: firstItem.id } }]
+        : [{ endpoint: "/scan", method: "POST", label: "重新扫描" }];
+    }
+    case SessionState.Clarifying:
+      return [{ endpoint: "/answer", method: "POST", label: "回答当前澄清", payload: { answer: "请继续" } }];
+    case SessionState.AwaitingUnderstanding:
+      return [{ endpoint: "/confirm-understanding", method: "POST", label: "确认理解并继续" }];
+    case SessionState.ScopeConfirm:
+      return session.workingDir
+        ? [{ endpoint: "/confirm-scope", method: "POST", label: "确认当前工作目录", payload: { path: session.workingDir.rootAbsPath } }]
+        : [];
+    case SessionState.ReadyConfirm:
+      return [{ endpoint: "/start-execution", method: "POST", label: "开始执行" }];
+    case SessionState.AwaitingBackupConfirm:
+      return [{ endpoint: "/confirm-backup-size", method: "POST", label: "确认备份并继续" }];
+    case SessionState.BlockedOnUser:
+      return [{ endpoint: "/answer", method: "POST", label: "回答阻断问题", payload: { answerText: "继续执行" } }];
+    case SessionState.Delivered:
+      return [{ endpoint: "/accept-delivery", method: "POST", label: "确认完成" }];
+    case SessionState.Error:
+      return [{ endpoint: "/recover", method: "POST", label: "从错误恢复" }];
+    default:
+      return [];
+  }
+}
+
+function buildStatusSummary(session: Session): string {
+  switch (session.state) {
+    case SessionState.Idle:
+      return "等待开始，可触发扫描。";
+    case SessionState.Clarifying:
+      return "正在澄清目标，需要用户补充信息。";
+    case SessionState.BlockedOnUser:
+      return "执行被用户决策阻断，需回答问题或确认风险。";
+    case SessionState.Delivered:
+      return "执行与验收已完成，等待用户确认完成。";
+    case SessionState.Error:
+      return session.lastError?.message ?? "流程遇到错误，等待恢复。";
+    default:
+      return `当前状态：${session.state}`;
+  }
 }
 
 // ===========================================================================
@@ -334,6 +392,38 @@ export function createRequestHandler(
       }
       deps.sseHub.addClient(res);
       deps.onSseConnect?.();
+      return;
+    }
+
+    if (pathname === "/state") {
+      if (method !== "GET") {
+        sendJson(res, 405, { ok: false, reason: "请使用 GET /state" });
+        return;
+      }
+      const session = deps.orchestrator.getSessionSnapshot();
+      sendJson(res, 200, {
+        ok: true,
+        state: session.state,
+        summary: buildStatusSummary(session),
+        session,
+        nextActions: buildNextActions(session),
+      });
+      return;
+    }
+
+    if (pathname === "/state") {
+      if (method !== "GET") {
+        sendJson(res, 405, { ok: false, reason: "请使用 GET /state" });
+        return;
+      }
+      const session = deps.orchestrator.getSessionSnapshot();
+      sendJson(res, 200, {
+        ok: true,
+        state: session.state,
+        summary: buildStatusSummary(session),
+        session,
+        nextActions: buildNextActions(session),
+      });
       return;
     }
 

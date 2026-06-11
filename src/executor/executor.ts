@@ -53,6 +53,10 @@ import type {
   ToolInvocation,
   ToolResult,
 } from "./types.js";
+import {
+  runConcurrentLoop,
+  type ConcurrentExecutorConfig,
+} from "./concurrentExecutor.js";
 
 /** 执行循环步数硬上限：每步对应一次 `completeWithTools`，防止无限循环。 */
 export const MAX_STEPS = 50;
@@ -90,6 +94,8 @@ export interface ExecutorDeps {
   highRiskGuard?: HighRiskGuard;
   /** 步数上限，默认 `MAX_STEPS`。 */
   maxSteps?: number;
+  /** 并发执行配置。若提供，则自动切换到并发调度路径。 */
+  concurrent?: Omit<ConcurrentExecutorConfig, "llm" | "tools" | "highRiskGuard" | "maxSteps">;
 }
 
 /**
@@ -449,17 +455,21 @@ export async function runLoop(
 export class Executor {
   constructor(private readonly deps: ExecutorDeps) {}
 
-  /**
-   * 运行一次执行循环。
-   * @param taskFrame  结构化任务。
-   * @param workingDir 已确认的 Working_Directory（sandbox 根）。
-   * @param hooks      执行回调。
-   */
   run(
     taskFrame: Task_Frame,
     workingDir: WorkingDirectoryLike,
     hooks: ExecutionHooks,
   ): Promise<ExecutionResult> {
+    if (this.deps.concurrent) {
+      const config: ConcurrentExecutorConfig = {
+        llm: this.deps.llm,
+        tools: this.deps.tools,
+        highRiskGuard: this.deps.highRiskGuard,
+        maxSteps: this.deps.maxSteps,
+        ...this.deps.concurrent,
+      };
+      return runConcurrentLoop(taskFrame, workingDir, hooks, config);
+    }
     return runLoop(taskFrame, workingDir, hooks, this.deps);
   }
 }

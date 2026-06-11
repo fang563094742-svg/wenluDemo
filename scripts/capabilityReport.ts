@@ -51,7 +51,7 @@ async function main() {
     ],
     nextReuse: [
       "每次新增脚本或工具后，运行 npm run capability:report 立即刷新能力总表。",
-      "需要向主人明牌时，直接查看 task_output/capability-line/latest-capability-report.md。",
+      "需要对当前的我明牌时，直接查看 task_output/capability-line/latest-capability-report.md。",
       "后续可把该脚本接到其他产出脚本末尾，实现产出后自动汇报。"
     ]
   };

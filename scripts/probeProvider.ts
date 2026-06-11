@@ -21,7 +21,7 @@ async function main() {
   console.log("[probe] baseURL=", env.WENLU_LLM_BASE_URL, "model=", env.WENLU_LLM_MODEL);
   try {
     const res = await provider.complete({
-      system: "你是助手。",
+      system: "你是未来的我。",
       messages: [{ role: "user", content: "只回复两个字：连通" }],
     });
     console.log("[probe] OK text=", JSON.stringify(res.text));

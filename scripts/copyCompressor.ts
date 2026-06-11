@@ -17,9 +17,36 @@ interface CompressionArtifacts {
   riskControl: string[];
 }
 
+interface ExpressionVariant {
+  audience: string;
+  tone: string;
+  text: string;
+}
+
+interface CompressionOutput {
+  sourceTitle: string;
+  audience: string;
+  promise: string;
+  platformPost: string;
+  privateOpening: string;
+  expressionVariants: ExpressionVariant[];
+  deliveryCard: {
+    categories: string[];
+    asks: string[];
+    proof: string[];
+    process: string[];
+    pricing: string[];
+    payment: string[];
+    riskControl: string[];
+  };
+}
+
 const PLATFORM_LIMITS: Record<string, number> = {
   platformPost: 120,
   privateOpening: 70,
+  bossBrief: 90,
+  collaboratorBrief: 100,
+  selfNote: 140,
 };
 
 function normalize(text: string): string {
@@ -81,8 +108,7 @@ function extractArtifacts(title: string, text: string): CompressionArtifacts {
   const asks = unique(sourceLines.map(cleanBullet).filter(keepAsk)).slice(0, 6);
   const proof = unique(sourceLines.map(cleanBullet).filter(keepProof)).slice(0, 8);
   const process = unique(
-    pickMany(sourceLines, [/先按最小闭环/, /直接发我/, /我直接回你/, /确认/, /排期/, /开工/])
-      .map(cleanBullet),
+    pickMany(sourceLines, [/先按最小闭环/, /直接发我/, /我直接回你/, /确认/, /排期/, /开工/]).map(cleanBullet),
   ).slice(0, 8);
   const pricing = unique(sourceLines.map(cleanBullet).filter((line) => /199|399|699|999|报价/.test(line) && line.length <= 40)).slice(0, 8);
   const payment = unique(sourceLines.map(cleanBullet).filter(keepPayment)).slice(0, 8);
@@ -105,82 +131,102 @@ function compressToLimit(text: string, limit: number): string {
   return result ? `${result}。` : `${text.slice(0, limit - 1)}…`;
 }
 
+function firstOf(items: string[], fallback: string): string {
+  return items[0] || fallback;
+}
+
 function buildPlatformPost(a: CompressionArtifacts): string {
-  const cat = a.categories.length
-    ? a.categories.slice(0, 3).join("、")
-    : "重复工作自动化";
+  const cat = a.categories.length ? a.categories.slice(0, 3).join("、") : "重复工作自动化";
   const ask = "现在输入是什么 / 想输出什么 / 最晚什么时候要";
   const proof = a.proof.find((item) => /24~72|24~48|首版/.test(item)) || "24~72 小时给首版";
   return compressToLimit(`我现在单独接${cat}这类小而快自动化单。直接发我：${ask}。我会直接回你能不能做、多久、多少钱；${proof}。`, PLATFORM_LIMITS.platformPost);
 }
 
 function buildPrivateOpening(): string {
-  return compressToLimit("收到，我先确认 3 件事：1.现在输入是什么 2.想输出什么 3.最晚什么时候要；清楚的话我直接给周期和报价。", PLATFORM_LIMITS.privateOpening);
+  return compressToLimit("把你现在卡住的重复动作发我，我先按最小闭环帮你压成可直接交付的一步。", PLATFORM_LIMITS.privateOpening);
 }
 
-function buildRules(a: CompressionArtifacts): string[] {
+function buildBossBrief(a: CompressionArtifacts): string {
+  const category = firstOf(a.categories, "重复工作自动化");
+  const proof = firstOf(a.proof, "24~72 小时给首版");
+  return compressToLimit(`这类${category}我能直接接住：先拿输入/输出/时限，回一版方案与报价，${proof}。`, PLATFORM_LIMITS.bossBrief);
+}
+
+function buildCollaboratorBrief(a: CompressionArtifacts): string {
+  const ask = firstOf(a.asks, "输入 / 输出 / 最晚时间");
+  const process = firstOf(a.process, "先按最小闭环确认再开工");
+  return compressToLimit(`你先把${ask}发我，我这边按“${process}”推进，先做出能交付的一版，再一起补细节。`, PLATFORM_LIMITS.collaboratorBrief);
+}
+
+function buildSelfNote(a: CompressionArtifacts): string {
+  const category = firstOf(a.categories, "重复工作自动化");
+  const pricing = firstOf(a.pricing, "先按最小闭环报价");
+  const risk = firstOf(a.riskControl, "先收边界，再开工");
+  return compressToLimit(`这单本质是${category}压缩。先问清输入、输出、时限，再给${pricing}；执行时守住“${risk}”，避免把边界做散。`, PLATFORM_LIMITS.selfNote);
+}
+
+function buildExpressionVariants(a: CompressionArtifacts): ExpressionVariant[] {
   return [
-    "先抽一句话卖点：只留‘帮谁把什么重复工作压成什么结果’。",
-    "平台短帖只保留四块：对象/痛点、可做范围、三问动作、结果承诺。",
-    "私聊首回只做成交分诊，不讲技术细节，优先收‘输入/输出/截止’。",
-    "凡是价格、周期、定金、修改次数，优先用现成锚点，不重新发明。",
-    "超过字数时，先删举例，再删解释，最后保留三问与承诺。",
-    `当前样本高频信任锚点：${unique([...a.proof, ...a.payment]).slice(0, 6).join("；") || "24~72 小时首版；50%定金；1次小调整"}`,
+    { audience: "老板", tone: "结果/决策", text: buildBossBrief(a) },
+    { audience: "同事", tone: "协作/推进", text: buildCollaboratorBrief(a) },
+    { audience: "自己", tone: "推演/约束", text: buildSelfNote(a) },
   ];
 }
 
-async function main() {
-  const filePath = process.argv[2] || "今晚直接外发收定金的一页成交包.md";
-  const raw = await readFile(resolve(filePath), "utf8");
-  const title = filePath.split("/").pop() || filePath;
+async function main(): Promise<void> {
+  const inputPath = process.argv[2] || resolve("scratch", "sales_copy_source.md");
+  const outputDir = process.argv[3] || resolve("task_output", "copy-compressor");
+  const raw = await readFile(inputPath, "utf8");
+  const title = linesOf(raw)[0] || "未命名原文";
   const artifacts = extractArtifacts(title, raw);
-  const platformPost = buildPlatformPost(artifacts);
-  const privateOpening = buildPrivateOpening();
-  const rules = buildRules(artifacts);
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outDir = resolve("artifacts", `copy-compressor-${stamp}`);
-  await mkdir(outDir, { recursive: true });
-
-  const summary = {
-    source: filePath,
-    platformPost,
-    privateOpening,
-    rules,
-    extracted: {
-      promise: artifacts.promise,
-      audience: artifacts.audience,
+  const output: CompressionOutput = {
+    sourceTitle: artifacts.sourceTitle,
+    audience: artifacts.audience,
+    promise: artifacts.promise,
+    platformPost: buildPlatformPost(artifacts),
+    privateOpening: buildPrivateOpening(),
+    expressionVariants: buildExpressionVariants(artifacts),
+    deliveryCard: {
       categories: artifacts.categories,
       asks: artifacts.asks,
       proof: artifacts.proof,
+      process: artifacts.process,
       pricing: artifacts.pricing,
       payment: artifacts.payment,
       riskControl: artifacts.riskControl,
     },
   };
 
-  const markdown = [
-    `# 成交压缩包｜${title}`,
-    "",
-    `## 平台即发短帖（<=${PLATFORM_LIMITS.platformPost}字）`,
-    platformPost,
-    "",
-    `## 私聊首回（<=${PLATFORM_LIMITS.privateOpening}字）`,
-    privateOpening,
-    "",
-    "## 压缩规则",
-    ...rules.map((rule, index) => `${index + 1}. ${rule}`),
-    "",
-    "## 抽取到的信任锚点",
-    ...unique([...artifacts.proof, ...artifacts.pricing, ...artifacts.payment]).map((item) => `- ${item}`),
-  ].join("\n");
+  await mkdir(outputDir, { recursive: true });
+  await writeFile(resolve(outputDir, "copy-compressed.json"), `${JSON.stringify(output, null, 2)}\n`, "utf8");
+  await writeFile(
+    resolve(outputDir, "copy-compressed.md"),
+    [
+      `# ${output.sourceTitle}`,
+      "",
+      `## 平台帖`,
+      output.platformPost,
+      "",
+      `## 私聊开场`,
+      output.privateOpening,
+      "",
+      `## 分场表达`,
+      ...output.expressionVariants.map((variant) => `- ${variant.audience}（${variant.tone}）：${variant.text}`),
+      "",
+      `## 交付卡`,
+      `- 类别：${output.deliveryCard.categories.join(" / ") || "无"}`,
+      `- 需求口：${output.deliveryCard.asks.join(" / ") || "无"}`,
+      `- 证明：${output.deliveryCard.proof.join(" / ") || "无"}`,
+      `- 流程：${output.deliveryCard.process.join(" / ") || "无"}`,
+      `- 报价：${output.deliveryCard.pricing.join(" / ") || "无"}`,
+      `- 收款：${output.deliveryCard.payment.join(" / ") || "无"}`,
+      `- 风控：${output.deliveryCard.riskControl.join(" / ") || "无"}`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
-  await writeFile(resolve(outDir, "analysis.json"), JSON.stringify(summary, null, 2));
-  await writeFile(resolve(outDir, "platform-post.txt"), `${platformPost}\n`);
-  await writeFile(resolve(outDir, "private-opening.txt"), `${privateOpening}\n`);
-  await writeFile(resolve(outDir, "rules.txt"), `${rules.join("\n")}\n`);
-  await writeFile(resolve(outDir, "成交压缩包.md"), `${markdown}\n`);
-
-  console.log(JSON.stringify({ outDir, platformPost, privateOpening }, null, 2));
+  console.log(JSON.stringify(output, null, 2));
 }
 
 main().catch((error) => {

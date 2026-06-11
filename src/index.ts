@@ -33,7 +33,28 @@
  * _Requirements: 6.4, 17.2, 2.3, 2.5_
  */
 
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+
+// ─── 自动加载 .env ───
+const __filename_idx = fileURLToPath(import.meta.url);
+const __dirname_idx = dirname(__filename_idx);
+const envPathIdx = resolvePath(__dirname_idx, "../.env");
+try {
+  const envContent = readFileSync(envPathIdx, "utf-8");
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+      val = val.slice(1, -1);
+    if (!process.env[key]) process.env[key] = val;
+  }
+} catch { /* .env 不存在则跳过 */ }
 
 import { validateApiKey } from "./config/config.js";
 import { DefaultRegistry, type Registry } from "./registry/registry.js";

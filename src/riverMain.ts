@@ -4678,6 +4678,8 @@ function shouldCalibrate(mind: Mind, userAway: boolean): boolean {
 async function calibrateWithUser(): Promise<void> {
   const lastUser = [...mind.conversation].reverse().find((entry) => entry.role === "user")?.text ?? "";
   if (shouldSuppressCalibrationNow(lastUser)) return;
+  // 去重护栏：已有未结裁决时，不再堆叠新的校准提问（避免 badge 永远清不掉）。
+  if (pendingCount(mind.pendingDecisions ?? []) > 0) return;
 
   const worst = [...(mind.goal?.dimensions ?? [])]
     .sort((a, b) => (b.target - b.current) - (a.target - a.current))[0];
@@ -6562,12 +6564,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     });
     return;
   }
-  if (method === "GET" && (url === "/history" || url.startsWith("/history?"))) {
+  if (method === "GET" && url === "/history") {
     const latestBelief = mind.beliefs.length > 0 ? mind.beliefs[mind.beliefs.length - 1].content : "正在观察";
     // 波3：按频道取历史。?channelId= 指定频道，缺省 chat_default。
+    // 注意：顶部的 url 已去掉 query，必须从 req.url 原始串解析 channelId。
     let qChannelId = DEFAULT_USER_CHANNEL_ID;
     try {
-      const u = new URL(url, "http://x");
+      const u = new URL(req.url ?? "/", "http://x");
       qChannelId = u.searchParams.get("channelId") || DEFAULT_USER_CHANNEL_ID;
     } catch { /* 用缺省 */ }
     const ch = getChannel(mind.channels ?? [], qChannelId);
