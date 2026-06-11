@@ -95,6 +95,7 @@ function makeOrch(
   };
   const orch: OrchestratorActions = {
     getState: () => state,
+    getSessionSnapshot: () => ({ state, awarenessItems: [], clarifier: undefined, workingDir: undefined } as any),
     scan: spies.scan,
     acceptAwareness: spies.acceptAwareness,
     dismissAwareness: spies.dismissAwareness,

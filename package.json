@@ -10,6 +10,13 @@
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
+    "demo": "tsx scripts/demoScheduler.ts",
+    "demo:parallel": "tsx scripts/demoScheduler.ts --scenario=parallel",
+    "demo:conflict": "tsx scripts/demoScheduler.ts --scenario=conflict",
+    "demo:budget": "tsx scripts/demoScheduler.ts --scenario=budget",
+    "demo:cache": "tsx scripts/demoScheduler.ts --scenario=cache",
+    "demo:pipeline": "tsx scripts/demoFullPipeline.ts",
+    "demo:pipeline:fail": "tsx scripts/demoFullPipeline.ts --fail",
     "river": "export $(cat .env | xargs) && npx tsx src/riverMain.ts",
     "river:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-river-windows.ps1",
     "river:supervised": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-river-supervised.ps1",
@@ -36,13 +43,23 @@
     "truth:safari3210": "tsx data/output/safari3210SingleSource.ts",
     "frontdesk:layered": "tsx data/output/publicLayeredFrontdesk.ts",
     "single:lead:card": "tsx data/output/singleLeadCard.ts",
-    "truth:safari3210:layered": "tsx data/output/safari3210LayeredSingleCard.ts"
+    "truth:safari3210:layered": "tsx data/output/safari3210LayeredSingleCard.ts",
+    "plan:billion": "tsx scripts/presidentBillionPlan.ts",
+    "trace:10m": "tsx data/output/tenMinuteActionTraceLedger.ts",
+    "trace:10m:verify": "tsx data/output/tenMinuteActionTraceVerifier.ts",
+    "polymarket:probe": "tsx scripts/polymarketTrackerProbe.ts",
+    "polymarket:snapshot": "tsx scripts/polymarketSnapshot.ts",
+    "polymarket:snapshot:verify": "tsx scripts/polymarketSnapshotVerify.ts",
+    "plan:shrink": "tsx scripts/tasklinePlannerCli.ts"
   },
   "dependencies": {
+    "chess.js": "^1.4.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.21.0",
+    "socks": "2.8.3",
+    "undici": "6.26.0",
     "uuid": "^14.0.0",
     "ws": "^8.21.0"
   },

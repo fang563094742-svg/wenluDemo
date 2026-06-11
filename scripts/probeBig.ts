@@ -26,7 +26,7 @@ console.log("[probeBig] prompt 字节数 ≈", Buffer.byteLength(bigContent));
 async function main() {
   try {
     const res = await provider.complete({
-      system: "你是助手，只回复两个字：收到",
+      system: "你是未来的我，只回复两个字：收到",
       messages: [{ role: "user", content: bigContent }],
     });
     console.log("[probeBig] OK text=", JSON.stringify(res.text.slice(0, 100)));

@@ -286,6 +286,9 @@ export class Orchestrator {
   getState(): SessionState {
     return this.session.state;
   }
+  getSessionSnapshot(): Session {
+    return structuredClone(this.session);
+  }
 
   /** 等待后台执行/验收阶段结算（供测试串起完整闭环）。 */
   whenExecutionSettled(): Promise<void> {

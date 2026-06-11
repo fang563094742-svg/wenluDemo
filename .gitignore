@@ -49,3 +49,157 @@ data/payment-assets/backups/
 "\"\""
 
 # NOTE: .env is intentionally committed for this private demo repo
+
+# 问路运行期用户数据（mind/memory/sensors/self_code/各用户数据/备份）——个人数据，绝不入库
+data/runtime/
+用户数据/
+
+# ─────────────────────────────────────────────────────────────────────
+# 运行期/开发期产物（验收快照、探针输出、复盘卡、协议模板、临时脚本等）
+# 一律不入库——这些是 agent 跑动时生成的数据，不是工程代码
+# ─────────────────────────────────────────────────────────────────────
+
+# 编辑器/工具本地配置与缓存（含本地密钥/权限，绝不入库）
+.claude/
+.codex/
+.cursor/
+.vscode/
+
+# agent 运行期目录
+.runtime/
+.taskline_artifacts/
+.taskline_backups/
+.taskline_artifacts*.json
+.wenlu_sensors/
+scratch/
+
+# 验收/观测/探针快照（带时间戳的 JSON 与 latest_* 汇总）
+acceptance_*.json
+acceptance_*.sh
+acceptance_verify.sh
+chess_acceptance*.json
+chess_focus_*.json
+chess_observation_repair_evidence_*.json
+chess_plan_output.json
+latest_*.json
+native_app_inspect_snapshot.json
+planner_input_example.json
+decision.json
+truth.json
+chess.png
+chess.txt
+OUT.raw
+
+# 复盘卡 / 协议 / 模板 / 证据链（运行期生成的 md，非项目文档）
+*_EVIDENCE_CHAIN*.md
+*_EVIDENCE_SELF_CHECK.md
+*_SINGLE_BLOCKER_PROTOCOL.md
+*_FRONTDOOR_TEMPLATE.md
+*_FRONTDOOR_CARD.md
+*_FRONTDOOR_BLOCKER_CAPTURE*.md
+*_REPAIR_REPORT_*.md
+*_REPAIR_CHECKLIST.md
+SINGLE_BLOCKER_DECISION_TEMPLATE.md
+PLANNING_SINGLE_BLOCKER_PROTOCOL.md
+PREDICTION_CARD_*.md
+主人理解校准卡.md
+web_upgrade_min_checklist.md
+verification_rulebook.md
+
+# 探针/验收临时脚本与采集器（运行期落地，非 scripts/ 工程脚本）
+capture_chess_truth.py
+chess_board_probe.py
+chess_local_move.py
+chess_single_blocker_plan.*
+chess_single_blocker_verify.sh
+chess_truth_sensor.sh
+native_app_acceptance.py
+native_app_acceptance_verify.sh
+native_app_evidence_capture.sh
+native_app_priority_verify.sh
+native_app_truth_readonly.sh
+read_front_app_and_window_title.sh
+single_blocker_planner.*
+single_blocker_planning_record.sh
+verification_acceptance_runner.py
+verification_truth_chain.sh
+verify_chess_expectation.py
+verify_single_blocker_protocol.sh
+
+# 验收/观测捕获目录（运行期生成）
+Chess/
+Finder/
+Google/
+Safari/
+OCR/
+board-visible/
+front-is-target/
+chess_observe/
+native_app_acceptance/
+native_app_evidence/
+native_app_probe/
+native_app_verification_evidence/
+native_app_front_probe
+native_app_truth
+verification/
+verification_evidence/
+verification_evidence_demo/
+verification_evidence_test/
+verification_evidence_verifytask/
+verification_primitives/
+web/
+
+# 占位/误生成的目录与裸命名文件（shell 误解析产物）
+<output_dir>/
+[OUT_DIR]/
+[outdir]/
+[output_dir]/
+verification_spec_*.json
+
+# 裸命名的 shell 误解析产物（命令片段被当成文件名落地，非工程文件）
+/bash
+/click
+/combine
+/compare
+/confirm
+/enumerate
+/find
+/finish_task
+/if
+/python
+/python3
+/read
+/run
+/use
+/verify_task
+/OCR
+/screencapture
+/capture_native_front_evidence
+/native_front_window
+/native_app_verify.sh
+/chess_acceptance_verify.sh
+/依赖外部则wait_for
+/对比
+/执行
+/比较标题一致性并输出JSON证据
+/生成唯一下一步
+/用
+/读取
+/运行
+/选唯一阻塞
+/选择目标原生
+/阻塞最多3项
+
+# 占位名目录（方括号需转义，否则被当字符类）——运行期截图/OCR/kv 转储
+\[OUT_DIR\]/
+\[outdir\]/
+\[output_dir\]/
+
+# 构建缓存 / 二进制（scripts 下的 OCR 构建产物等）
+scripts/.build/
+
+# 运行期生成的能力/任务链追踪与账本（使用过程数据，非工程定义）
+data/verifiable-task-chain/ten-minute-action-trace-ledger.*
+data/verifiable-task-chain/ten-minute-action-trace-verification.*
+data/verifiable-task-chain/process-baseline-trace.md
+data/capability-line/million-learning-line.json

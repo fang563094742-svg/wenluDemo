@@ -1,10 +1,31 @@
 [
   {
+    "id": "judgment-deadline-law-chain",
+    "goal": "可验证任务链已登记这张唯一军法卡的双重校验任务。",
+    "verifyCmd": "rg -q 'judgment-deadline-law-content' data/verifiable-task-chain/task-chain.json && rg -q 'judgment-deadline-law-files' data/verifiable-task-chain/task-chain.json",
+    "difficulty": 2,
+    "createdAt": "2026-06-09T09:06:20.560Z"
+  },
+  {
+    "id": "judgment-deadline-law-content",
+    "goal": "Markdown 军法卡正文明确包含‘10 问至少 8 项’与‘15 分钟最小可验件’。",
+    "verifyCmd": "rg -q '10 个强制判断问题中的至少 8 个|15 分钟内必须产出一个最小可验件' task_output/judgment-deadline-law/latest-judgment-deadline-law.md",
+    "difficulty": 2,
+    "createdAt": "2026-06-09T09:06:20.560Z"
+  },
+  {
+    "id": "judgment-deadline-law-files",
+    "goal": "唯一现行军法卡 JSON 与 Markdown 产物同时落盘。",
+    "verifyCmd": "test -f data/capability-line/judgment-deadline-law.json && test -f task_output/judgment-deadline-law/latest-judgment-deadline-law.md",
+    "difficulty": 1,
+    "createdAt": "2026-06-09T09:06:20.560Z"
+  },
+  {
     "id": "vt-chain-bootstrap",
     "goal": "把外部可客观验证任务链固定为可复跑资产，并验证产物已落盘",
     "verifyCmd": "test -f data/verifiable-task-chain/task-chain.json && test -f task_output/verifiable-task-chain/latest-verification.json && grep -F '\"id\": \"vt-chain-bootstrap\"' data/verifiable-task-chain/task-chain.json >/dev/null && grep -F '\"passed\": true' task_output/verifiable-task-chain/latest-verification.json >/dev/null",
     "difficulty": 2,
-    "createdAt": "2026-06-08T09:47:32.208Z"
+    "createdAt": "2026-06-10T11:43:57.434Z"
   },
   {
     "id": "vt-layered-judgment-law-min-source",

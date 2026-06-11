@@ -56,6 +56,13 @@
     "reuseCommand": "npx tsx scripts/dealAccelerator.ts"
   },
   {
+    "path": "scripts/demoScheduler.ts",
+    "name": "demoScheduler.ts",
+    "type": "script",
+    "summary": "",
+    "reuseCommand": "npx tsx scripts/demoScheduler.ts"
+  },
+  {
     "path": "scripts/executorControlSurface.ts",
     "name": "executorControlSurface.ts",
     "type": "script",
@@ -84,6 +91,20 @@
     "reuseCommand": "npx tsx scripts/learningLine.ts"
   },
   {
+    "path": "scripts/millionLearningLine.ts",
+    "name": "millionLearningLine.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/millionLearningLine.ts",
+    "reuseCommand": "npx tsx scripts/millionLearningLine.ts"
+  },
+  {
+    "path": "scripts/netExternalJsonIntel.ts",
+    "name": "netExternalJsonIntel.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/netExternalJsonIntel.ts",
+    "reuseCommand": "npx tsx scripts/netExternalJsonIntel.ts"
+  },
+  {
     "path": "scripts/patch-final-card.mjs",
     "name": "patch-final-card.mjs",
     "type": "script",
@@ -98,6 +119,13 @@
     "reuseCommand": "npx tsx scripts/paymentAssetInjector.ts"
   },
   {
+    "path": "scripts/presidentBillionPlan.ts",
+    "name": "presidentBillionPlan.ts",
+    "type": "script",
+    "summary": "生成时间：${report.generatedAt}",
+    "reuseCommand": "npx tsx scripts/presidentBillionPlan.ts"
+  },
+  {
     "path": "scripts/probeBig.ts",
     "name": "probeBig.ts",
     "type": "script",
@@ -110,6 +138,13 @@
     "type": "script",
     "summary": "临时探针（非交付物）：用真实 Gpt54Provider 直连端点跑一次 complete，打印完整错误链。 */",
     "reuseCommand": "npx tsx scripts/probeProvider.ts"
+  },
+  {
+    "path": "scripts/processBaseline.ts",
+    "name": "processBaseline.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/processBaseline.ts",
+    "reuseCommand": "npx tsx scripts/processBaseline.ts"
   },
   {
     "path": "scripts/publicDemandScanner.ts",
@@ -161,6 +196,13 @@
     "reuseCommand": "npx tsx scripts/verifyPublicDemandStructured.ts"
   },
   {
+    "path": "scripts/verifyWriteRedirectPolicy.ts",
+    "name": "verifyWriteRedirectPolicy.ts",
+    "type": "script",
+    "summary": "可执行能力入口：scripts/verifyWriteRedirectPolicy.ts",
+    "reuseCommand": "npx tsx scripts/verifyWriteRedirectPolicy.ts"
+  },
+  {
     "path": "scripts/快钱收口分诊脚本说明.md",
     "name": "快钱收口分诊脚本说明.md",
     "type": "doc",
@@ -173,6 +215,13 @@
     "type": "doc",
     "summary": "目标：把现有成交/服务单页，自动压成更短的即发版平台帖与私聊首回，并沉淀为可复用动作。",
     "reuseCommand": "open \"scripts/成交压缩能力说明.md\""
+  },
+  {
+    "path": "tools/execution-stack/.DS_Store",
+    "name": ".DS_Store",
+    "type": "shell",
+    "summary": "可执行能力入口：tools/execution-stack/.DS_Store",
+    "reuseCommand": "bash tools/execution-stack/.DS_Store"
   },
   {
     "path": "tools/execution-stack/bin/task",

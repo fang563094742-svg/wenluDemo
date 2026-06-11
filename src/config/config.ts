@@ -103,6 +103,54 @@ export function readModel(env: NodeJS.ProcessEnv = process.env): string | undefi
   return value.length > 0 ? value : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// LLM 池：备用中转 + 本地模型兜底（大脑去单点）
+// ---------------------------------------------------------------------------
+
+/** 备用中转端点环境变量（与主端点同为 OpenAI 兼容；主端点挂了自动转这里）。 */
+export const BACKUP_BASE_URL_ENV_VAR = "WENLU_LLM_BACKUP_BASE_URL";
+/** 备用中转 API key 环境变量（缺省回退主 key）。 */
+export const BACKUP_API_KEY_ENV_VAR = "WENLU_LLM_BACKUP_API_KEY";
+/** 备用中转模型名环境变量（缺省回退主 model）。 */
+export const BACKUP_MODEL_ENV_VAR = "WENLU_LLM_BACKUP_MODEL";
+
+/** 本地模型端点环境变量（OpenAI 兼容，如 Ollama 的 http://127.0.0.1:11434/v1）。 */
+export const LOCAL_BASE_URL_ENV_VAR = "WENLU_LOCAL_BASE_URL";
+/** 本地模型名环境变量（如 qwen2.5 / llama3.1）。 */
+export const LOCAL_MODEL_ENV_VAR = "WENLU_LOCAL_MODEL";
+
+/** 一个 LLM 端点的解析配置。 */
+export interface LlmEndpointConfig {
+  baseURL: string;
+  apiKey: string;
+  model?: string;
+}
+
+/**
+ * 读取备用中转配置。仅当 `WENLU_LLM_BACKUP_BASE_URL` 非空才返回（否则 undefined，池中不加该层）。
+ * key 缺省回退主 key（同一中转商多端点常共用 key）。
+ */
+export function readBackupEndpoint(env: NodeJS.ProcessEnv = process.env): LlmEndpointConfig | undefined {
+  const baseURL = (env[BACKUP_BASE_URL_ENV_VAR] ?? "").trim();
+  if (!baseURL) return undefined;
+  const backupKey = (env[BACKUP_API_KEY_ENV_VAR] ?? "").trim();
+  const mainKey = readApiKey(env);
+  const apiKey = backupKey || (mainKey.ok ? mainKey.apiKey : "");
+  const model = (env[BACKUP_MODEL_ENV_VAR] ?? "").trim() || undefined;
+  return { baseURL, apiKey, model };
+}
+
+/**
+ * 读取本地模型配置（断网兜底层）。仅当 `WENLU_LOCAL_BASE_URL` 非空才返回。
+ * 本地模型通常无需鉴权，apiKey 给占位串即可（OpenAI 兼容端点要求 header 存在）。
+ */
+export function readLocalEndpoint(env: NodeJS.ProcessEnv = process.env): LlmEndpointConfig | undefined {
+  const baseURL = (env[LOCAL_BASE_URL_ENV_VAR] ?? "").trim();
+  if (!baseURL) return undefined;
+  const model = (env[LOCAL_MODEL_ENV_VAR] ?? "").trim() || undefined;
+  return { baseURL, apiKey: "local-no-auth", model };
+}
+
 /**
  * 读取并校验 API key，缺失时仅返回错误信息（不抛异常）。
  * 供启动校验逻辑使用：调用方可据 `error` 决定是否优雅终止启动（R6.4）。
