@@ -284,7 +284,22 @@ import { validateReflection, type ReflectionDirective } from "./judgment/metaRef
 
 const execFileAsync = promisify(execFile);
 void execFileAsync; // 保留 promisify 兼容；所有外部命令统一走 safeExec（带硬围栏）
-const verificationEngine = createVerificationEngine();
+const verificationEngine = createVerificationEngine({
+  // 迁移点：verify_task 的 shell 类断言 / verifyCmd 的执行落到「用户本机」（连接器在线时）。
+  // 离线返回 null → 引擎走默认服务端 exec（行为不变）。connectorBridge/connectorOnline 在下方定义，
+  // 此闭包仅在 verify_task 运行期被调用，届时二者已就绪。
+  shellExec: async (cmd, _cwd, timeoutMs) => {
+    if (!connectorOnline()) return null;
+    try {
+      const r = await connectorBridge.request<{ ok: boolean; stdout?: string; stderr?: string; code?: number }>(
+        "exec", { command: cmd }, (timeoutMs ?? 10000) + 5000,
+      );
+      return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", code: typeof r.code === "number" ? r.code : (r.ok ? 0 : 1) };
+    } catch (e: any) {
+      return { stdout: "", stderr: String(e?.message ?? e), code: 1 };
+    }
+  },
+});
 const verificationEvidence = createEvidenceCollector(2000);
 
 /**
@@ -1254,6 +1269,32 @@ const connectorBridge = new ConnectorBridge({
 /** 连接器是否在线（手和眼睛是否已落到用户本机）。 */
 function connectorOnline(): boolean {
   return connectorBridge.isOnline();
+}
+
+/**
+ * 宿主执行原语（迁移核心收口）：连接器在线 → 命令在「当前用户自己的电脑」执行；
+ * 否则回退服务端 safeExec("sh", ...)。
+ *
+ * 语义对齐 safeExec：退出 0 → resolve {stdout, stderr}；非 0/失败 → 抛错（err.stdout/err.stderr 可读），
+ * 使所有原本依赖 safeExec 抛错语义的调用点逐字不变即可切换。
+ * 注：连接器分支不转发服务端 cwd（服务端路径在用户机上无意义；连接器默认用用户 home）。
+ */
+async function runOnHost(
+  cmd: string,
+  opts: { cwd?: string; timeout?: number; maxBuffer?: number; encoding?: BufferEncoding } = {},
+): Promise<{ stdout: string; stderr: string }> {
+  if (connectorOnline()) {
+    const to = opts.timeout ?? 60_000;
+    const r = await connectorBridge.request<{ ok: boolean; stdout?: string; stderr?: string; code?: number }>(
+      "exec", { command: cmd }, to + 5_000,
+    );
+    if (r.ok) return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+    const err: any = new Error(`命令非零退出（用户本机连接器）：${(r.stderr ?? "").slice(0, 200)}`);
+    err.stdout = r.stdout ?? "";
+    err.stderr = r.stderr ?? "";
+    throw err;
+  }
+  return safeExec("sh", ["-c", cmd], opts);
 }
 
 /**
@@ -5173,6 +5214,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         return items.slice(0, 40).join("\n");
       }
       case "inspect_native_apps": {
+        // 迁移点：连接器在线 → 读「用户本机」的前台/在用应用；否则回退服务端 osascript（mac-only）。
+        if (connectorOnline()) {
+          try {
+            const data = await connectorBridge.request<unknown>("inspect_apps", {}, 15000);
+            return JSON.stringify(data, null, 2).slice(0, 3000);
+          } catch (e: any) {
+            return `[连接器读取原生应用失败] ${(e?.message ?? e ?? "").toString().slice(0, 500)}`;
+          }
+        }
         const front = await captureFrontAppSnapshot();
         const running = await listForegroundApps();
         const payload = {
@@ -5185,6 +5235,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       case "focus_native_app": {
         const app = String(args.app ?? "").trim();
         if (!app) return "错误：应用名为空";
+        // 迁移点：连接器在线 → 在「用户本机」把应用拉前台；否则回退服务端 osascript（mac-only）。
+        if (connectorOnline()) {
+          try {
+            const data = await connectorBridge.request<unknown>("focus_app", { app }, 15000);
+            return JSON.stringify(data, null, 2).slice(0, 3000);
+          } catch (e: any) {
+            return `[连接器聚焦应用失败] ${(e?.message ?? e ?? "").toString().slice(0, 500)}`;
+          }
+        }
         const evidencePath = resolvePath(PROJECT_ROOT, "用户数据", "autonomy", "native_app_focus_latest.json");
         const evidence = await ensureNativeAppPriority(app, evidencePath);
         return JSON.stringify(evidence, null, 2).slice(0, 3000);
@@ -5497,8 +5556,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         // 校验2：命令过长（>400字符）通常是把整段脚本塞进来，不利复用
         if (cmd.length > 400) return `[拒绝固化] 命令过长(${cmd.length}字符)。把它写成一个脚本文件，再固化“运行该脚本”的短命令。`;
         // 校验3：实际试跑一次（只读/探测类），跑通才固化。跑不通就别骗自己学会了。
+        // 迁移点：连接器在线 → 在用户本机试跑（试跑应发生在真正要用它的机器上）。
         try {
-          await safeExec("sh", ["-c", cmd], { timeout: 15000, maxBuffer: 2 * 1024 * 1024 });
+          await runOnHost(cmd, { timeout: 15000, maxBuffer: 2 * 1024 * 1024 });
         } catch (e: any) {
           const msg = (e?.stderr || e?.message || "").toString();
           // 命令存在但返回非零（如 grep 无匹配）也算“能跑”，只有“命令找不到/语法错”才拒绝
@@ -5768,8 +5828,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           return `[拒绝锻造] 与已有能力「${dup.name}」实质重复。真正的新能力要解决旧链路解决不了的问题。`;
         }
         // 守门3：实跑校验——跑不通不算掌握。
+        // 迁移点：连接器在线 → 在用户本机实跑组合脚本。
         try {
-          await safeExec("sh", ["-c", script], { timeout: 20000, maxBuffer: 4 * 1024 * 1024 });
+          await runOnHost(script, { timeout: 20000, maxBuffer: 4 * 1024 * 1024 });
         } catch (e: any) {
           const msg = (e?.stderr || e?.message || "").toString();
           if (/not found|command not found|No such file|syntax error|unexpected/i.test(msg)) {
@@ -5950,6 +6011,25 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         return `任务 [${id}] 经现实验证：${badge}\n证据：${evidence.slice(0, 220)}\n${failureClusters.length > 0 ? `失败簇：${failureClusters.join(" / ")}\n` : ""}${distillNote ? distillNote + "\n" : ""}${note}`;
       }
       case "grow_sensor": {
+        // 迁移点：连接器在线 → 把"眼睛"装到用户本机 sensors 目录（scan 时 runSensors 才跑得到，
+        // 否则装在服务端的眼睛永远看不到用户的屏幕）；离线回退服务端。
+        if (connectorOnline()) {
+          try {
+            const r = await connectorBridge.request<{ ok: boolean; name?: string; sample?: string; error?: string }>(
+              "grow_sensor",
+              { name: args.name, lang: args.lang, code: args.code, senses: args.senses },
+              20000,
+            );
+            if (r.ok) {
+              bumpNovelty();
+              notify("event", `👁 我在你本机长出了一只新眼睛「${String(args.name ?? "")}」`, `sensor#${mind.cycles}`);
+              return `✅ 新感知器官「${r.name}」已装到你本机并试跑通过。下一次呼吸起，perceive 自动带上它。试跑样本：${r.sample ?? ""}`;
+            }
+            return `[连接器长眼睛失败] ${r.error ?? ""}`;
+          } catch (e: any) {
+            return `[连接器长眼睛失败] ${(e?.message ?? e ?? "").toString().slice(0, 500)}`;
+          }
+        }
         const sname = String(args.name ?? "").trim();
         const lang = String(args.lang ?? "").trim();
         const code = String(args.code ?? "");
@@ -5999,6 +6079,29 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         }
       }
       case "grow_limb": {
+        // 迁移点：连接器在线 → 在「用户本机」装依赖/配置环境（跨平台包管理器）；离线回退服务端 safeExec。
+        if (connectorOnline()) {
+          try {
+            const r = await connectorBridge.request<{ ok: boolean; limbName?: string; target?: string; verifyOutput?: string; error?: string }>(
+              "grow_limb",
+              { action: args.action, package_manager: args.package_manager, target: args.target, verify_cmd: args.verify_cmd, reason: args.reason },
+              140_000,
+            );
+            if (r.ok) {
+              const limbName = r.limbName ?? `limb_${String(args.target ?? "").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 20)}`;
+              if (!mind.masteredTools.some((t) => t.name === limbName)) {
+                mind.masteredTools.push({ name: limbName, command: String(args.verify_cmd ?? ""), description: `[grow_limb] ${String(args.reason ?? "").slice(0, 80)}` });
+              }
+              await saveMind(mind);
+              bumpNovelty();
+              notify("event", `🦾 我在你本机长出了新能力「${limbName}」`, `limb#${mind.cycles}`);
+              return `✅ grow_limb 成功（用户本机）！目标: ${r.target}\n验证通过: ${r.verifyOutput ?? ""}\n已固化为能力 [${limbName}]。`;
+            }
+            return `[grow_limb 未通过] ${r.error ?? r.verifyOutput ?? "安装或验证失败"}`;
+          } catch (e: any) {
+            return `[连接器 grow_limb 失败] ${(e?.message ?? e ?? "").toString().slice(0, 500)}`;
+          }
+        }
         // 自生长执行器：碰到能力缺口时自动安装/配置/创建工具链
         const action = String(args.action ?? "").trim();
         const pkgMgr = String(args.package_manager ?? "sh").trim();
@@ -6162,9 +6265,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           }
 
           try {
-            await safeExec("sh", ["-c", installCmd], { timeout: 120_000, maxBuffer: 1024 * 1024 });
+            await runOnHost(installCmd, { timeout: 120_000, maxBuffer: 1024 * 1024 });
             // 验证
-            const { stdout: vOut } = await safeExec("sh", ["-c", sa.verify], { timeout: 15_000, maxBuffer: 256 * 1024 });
+            const { stdout: vOut } = await runOnHost(sa.verify, { timeout: 15_000, maxBuffer: 256 * 1024 });
             solved = true;
             solutionReport += `✅ 方案成功: ${sa.pm} install ${sa.target}\n验证: ${vOut.trim().slice(0, 100)}\n`;
 
@@ -6195,7 +6298,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         if (!mt) return `未找到已固化能力: ${targetName}。可用: ${mind.masteredTools.map(t => t.name).join(", ")}`;
         const cmd2 = args.args ? `${mt.command} ${args.args}` : mt.command;
         try {
-          const { stdout, stderr } = await safeExec("sh", ["-c", cmd2], { cwd: process.cwd(), timeout: 30_000, maxBuffer: 512 * 1024 });
+          const { stdout, stderr } = await runOnHost(cmd2, { timeout: 30_000, maxBuffer: 512 * 1024 });
           mind.metrics.execCount += 1; mind.metrics.execSuccessCount += 1;
           return (stdout + stderr).trim().slice(0, 2000) || "(无输出)";
         } catch (e: any) {
@@ -6213,8 +6316,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           };
           const execCwd = defaultCwdByToolName[name] ?? process.cwd();
           // 用 safeExec（异步+硬围栏）替代 execSync——execSync 会同步阻塞整个事件循环，是僵死元凶
+          // 迁移点：连接器在线 → 已固化能力执行落到用户本机。
           try {
-            const { stdout, stderr } = await safeExec("sh", ["-c", cmd], {
+            const { stdout, stderr } = await runOnHost(cmd, {
               cwd: execCwd,
               timeout: 30_000,
               maxBuffer: 512 * 1024,

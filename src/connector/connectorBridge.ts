@@ -23,7 +23,16 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 
-export type ConnectorOp = "exec" | "read_file" | "write_file" | "list_dir" | "scan";
+export type ConnectorOp =
+  | "exec"
+  | "read_file"
+  | "write_file"
+  | "list_dir"
+  | "scan"
+  | "inspect_apps"
+  | "focus_app"
+  | "grow_limb"
+  | "grow_sensor";
 
 interface PendingRequest {
   resolve: (data: unknown) => void;

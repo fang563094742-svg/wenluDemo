@@ -25,14 +25,47 @@ export interface VerificationEngine {
   verifyLegacy(taskId: string, verifyCmd: string, timeoutMs?: number): Promise<VerificationResult>;
 }
 
+/**
+ * 可注入的宿主 shell 执行器（迁移用）：把 shell 类断言/verifyCmd 的执行落到
+ * 「当前用户自己的电脑」（经连接器）。返回 null 表示不接管 → 回退引擎默认服务端 exec。
+ */
+export type HostShellExec = (
+  cmd: string,
+  cwd: string | undefined,
+  timeoutMs: number,
+) => Promise<{ stdout: string; stderr: string; code: number | null } | null>;
+
 // ═══════════════════════════════════════════════════════════════════════
 // 单条断言执行器
 // ═══════════════════════════════════════════════════════════════════════
 
-async function executeShellProbe(assertion: Assertion, context: AssertionContext): Promise<AssertionResult> {
+async function executeShellProbe(assertion: Assertion, context: AssertionContext, shellExec?: HostShellExec): Promise<AssertionResult> {
   const start = Date.now();
   if (!assertion.cmd) {
     return failResult(assertion, start, "missing cmd for shell probe");
+  }
+
+  // 迁移点：注入的宿主执行器（连接器在线 → 在用户本机执行）。返回 null 表示不接管 →
+  // 回退下方默认的服务端 exec（离线时行为与改造前逐字一致）。
+  if (shellExec) {
+    try {
+      const hosted = await shellExec(assertion.cmd, context.workingDir, assertion.timeoutMs);
+      if (hosted) {
+        const durationMs = Date.now() - start;
+        const evidence = buildEvidence(assertion, hosted.stdout, hosted.stderr, hosted.code);
+        const passed = evaluateExpect(assertion, hosted.code, hosted.stdout);
+        return {
+          id: assertion.id,
+          description: assertion.description,
+          severity: assertion.severity,
+          passed,
+          durationMs,
+          evidence,
+        };
+      }
+    } catch (err: any) {
+      return failResult(assertion, start, err?.message ?? String(err));
+    }
   }
 
   return new Promise<AssertionResult>((resolve) => {
@@ -318,11 +351,12 @@ function getNestedField(obj: unknown, path: string): unknown {
 // 引擎实现
 // ═══════════════════════════════════════════════════════════════════════
 
-export function createVerificationEngine(): VerificationEngine {
+export function createVerificationEngine(opts: { shellExec?: HostShellExec } = {}): VerificationEngine {
+  const shellExec = opts.shellExec;
   async function executeAssertion(assertion: Assertion, context: AssertionContext): Promise<AssertionResult> {
     switch (assertion.probeType) {
       case "shell":
-        return executeShellProbe(assertion, context);
+        return executeShellProbe(assertion, context, shellExec);
       case "http":
         return executeHttpProbe(assertion, context);
       case "file":
