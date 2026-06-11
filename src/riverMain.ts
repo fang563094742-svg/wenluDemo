@@ -212,6 +212,12 @@ import {
 } from "./anti-premise/index.js";
 import { getWenluDataDir, resolveWenluDataPath } from "./runtime/localDataDir.js";
 import { ConnectorBridge } from "./connector/connectorBridge.js";
+// ─── 多用户 PG 存储（multiuser-pg-store）：大脑/记忆/器官落 PG，按 user_id 隔离 ───
+import { bootstrapDb, closePool } from "./db/pool.js";
+import { SYSTEM_USER_ID, resolveUserId } from "./db/systemUser.js";
+import { loadBrain, saveBrainSections, upsertInitialBrain } from "./db/brainRepo.js";
+import { loadMemoryFor, saveMemoryFor } from "./db/memoryRepo.js";
+import { loadSensorState as loadSensorStatePg, saveSensorState as saveSensorStatePg } from "./db/sensorRepo.js";
 
 // ─── 海马体 + 前额叶 ───
 import {
@@ -410,6 +416,45 @@ async function safeExec(
 const WENLU_DIR = getWenluDataDir();
 const WENLU_BIN_DIR = resolvePath(WENLU_DIR, "bin");
 const MIND_FILE = resolveWenluDataPath("mind.json");
+
+/**
+ * 当前大脑归属的 user_id（multiuser-pg-store）。
+ * 进程级隔离：每个 riverMain 进程绑定一个用户的大脑——由环境变量 `WENLU_BRAIN_USER` 指定
+ * （`local` 或某用户 UUID），缺省为 System_User(local)。同一份代码以不同 `WENLU_BRAIN_USER`
+ * 启动即得到完全隔离的独立大脑（各自独立全局态、各自 PG 行经 withUser→RLS 隔离），
+ * 天然杜绝跨用户串数据，无需改动单用户运行时逻辑。多用户网关/路由按需在上层编排。
+ */
+const BRAIN_USER_ID: string = (() => {
+  const env = process.env.WENLU_BRAIN_USER?.trim();
+  return env ? resolveUserId(env) : SYSTEM_USER_ID;
+})();
+function currentUserId(): string { return BRAIN_USER_ID; }
+
+/**
+ * 首启一次性导入（multiuser-pg-store 切换 bootstrap）：
+ * 当 PG 中当前用户尚无大脑行、且存在历史 .wenlu-local 文件时，把文件数据一次性导入 PG。
+ * 仅在「PG 为空」时触发，不是每次加载的文件回退（满足 Req 7.5：运行期不回退文件）。
+ * 使得「停旧 river → 重启新代码」即可干净切换，无需手动搬运、无竞态。
+ */
+async function maybeImportLegacyBrain(): Promise<void> {
+  try {
+    if (currentUserId() !== SYSTEM_USER_ID) return; // 仅 local 进程从 .wenlu-local 导入；其他用户脑从 PG 起
+    const existing = await loadBrain(currentUserId());
+    if (existing) return; // PG 已有大脑 → 不导入
+    let mindFromFile: Record<string, unknown> | null = null;
+    try { mindFromFile = JSON.parse(await readFile(MIND_FILE, "utf-8")); } catch { mindFromFile = null; }
+    if (mindFromFile) {
+      await upsertInitialBrain(currentUserId(), mindFromFile);
+      console.log("[问路] 大脑: 检测到 PG 为空，已从 .wenlu-local 一次性导入");
+      try {
+        const mem = JSON.parse(await readFile(LAYERED_MEMORY_FILE, "utf-8"));
+        if (mem?.meta?.version) await saveMemoryFor(currentUserId(), mem);
+      } catch { /* 无 memory.json 则跳过 */ }
+    }
+  } catch (e) {
+    console.error("[问路] 大脑首启导入检查失败（不阻塞启动）:", e instanceof Error ? e.message : e);
+  }
+}
 
 /** P9: 结构化 belief，带置信度/来源/可推翻。只累加不删除——推翻时留痕。 */
 interface Belief {
@@ -826,7 +871,8 @@ async function resolveChannelsState(loaded: Partial<Mind>): Promise<{ schemaVers
 
 async function loadMind(): Promise<Mind> {
   try {
-    const loaded = JSON.parse(await readFile(MIND_FILE, "utf-8")) as Partial<Mind>;
+    const loaded = (await loadBrain(currentUserId())) as Partial<Mind> | null;
+    if (!loaded) throw new Error("brain:empty"); // 无行 → 走 catch 建默认（首次 saveMind 自动 INSERT）
     const chState = await resolveChannelsState(loaded);
     return {
       beliefs: loaded.beliefs ?? [],
@@ -1071,8 +1117,8 @@ async function saveMind(m: Mind): Promise<void> {
     if ((m.attentionLedger?.length ?? 0) > 120) {
       m.attentionLedger = (m.attentionLedger ?? []).slice(-120);
     }
-    await writeFile(MIND_FILE, JSON.stringify(m, null, 2), "utf-8");
-    // 波3：已废除 topics.json 双源——频道单一事实源即 mind.channels（随 mind.json 落盘）。
+    // 大脑落 PG：按脏板块写（一期保守全板块），按 user_id 隔离（withUser→RLS）。无行时 saveBrainSections 自动 INSERT。
+    await saveBrainSections(currentUserId(), m as unknown as Record<string, unknown>, new Set());
   }).catch(() => {});
   return saveChain;
 }
@@ -1081,8 +1127,8 @@ async function saveMind(m: Mind): Promise<void> {
 
 async function loadLayeredMemory(): Promise<LayeredMemory | null> {
   try {
-    const raw = JSON.parse(await readFile(LAYERED_MEMORY_FILE, "utf-8"));
-    if (raw?.meta?.version) return raw as LayeredMemory;
+    const raw = await loadMemoryFor(currentUserId());
+    if (raw && (raw as { meta?: { version?: number } })?.meta?.version) return raw as unknown as LayeredMemory;
     return null;
   } catch {
     return null;
@@ -1091,8 +1137,7 @@ async function loadLayeredMemory(): Promise<LayeredMemory | null> {
 
 async function saveLayeredMemory(): Promise<void> {
   if (!layeredMemory) return;
-  await mkdir(WENLU_DIR, { recursive: true });
-  await writeFile(LAYERED_MEMORY_FILE, JSON.stringify(layeredMemory, null, 2), "utf-8");
+  await saveMemoryFor(currentUserId(), layeredMemory as unknown as Record<string, unknown>);
 }
 
 async function runConsolidation(): Promise<ConsolidationReport> {
@@ -1178,6 +1223,7 @@ function emit(ev: Record<string, unknown>): void {
  * 后端不再持有"active 话题"（前端 own），此处仅用于把"对用户的回复"路由回用户所在频道。
  */
 let currentUserChannelId: string = DEFAULT_USER_CHANNEL_ID;
+
 
 /**
  * 统一消息出口（波2 事件归一化 + route）。
@@ -4872,13 +4918,12 @@ type SensorState = Record<string, { lastOutHash?: string; idleRounds: number; sl
 
 async function loadSensorState(): Promise<SensorState> {
   try {
-    return JSON.parse(await readFile(SENSORS_STATE_FILE, "utf-8"));
+    return ((await loadSensorStatePg(currentUserId())) as SensorState) ?? {};
   } catch { return {}; }
 }
 async function saveSensorState(s: SensorState): Promise<void> {
   try {
-    await mkdir(SENSORS_DIR, { recursive: true });
-    await writeFile(SENSORS_STATE_FILE, JSON.stringify(s), "utf-8");
+    await saveSensorStatePg(currentUserId(), s as unknown as Record<string, unknown>);
   } catch {}
 }
 
@@ -7256,6 +7301,16 @@ export async function main(): Promise<void> {
   }
   catch (e) { console.error(`[问路] ${e instanceof Error ? e.message : e}`); process.exitCode = 1; return; }
 
+  // ─── 数据库启动引导（multiuser-pg-store）：建库 → 迁移 → 连通自检 ───
+  // 连不上 PG 显式失败并退出，严禁以「无持久化 / 文件回退」方式降级运行（Req 11.3）。
+  try {
+    await bootstrapDb();
+  } catch (e) {
+    console.error(`[问路] PostgreSQL 不可用，拒绝降级启动：${e instanceof Error ? e.message : e}`);
+    process.exit(1);
+  }
+  await maybeImportLegacyBrain();
+
   mind = await loadMind();
   // 恢复出网健康表的历史学习（跨重启留存自适应择优）。
   netEgress.healthTable.restore(mind.egressHealth);
@@ -7318,8 +7373,8 @@ export async function main(): Promise<void> {
   scheduleTasks(); // 恢复之前运行中的任务线
   startWakePoller(); // Phase 2: 独立高频唤醒回路（3s fs 探测 + fs.watch 事件驱动）
 
-  process.on("SIGINT", async () => { alive = false; stopWakePoller(); await saveMind(mind); sseHub.closeAll(); server.close(); process.exit(0); });
-  process.on("SIGTERM", async () => { alive = false; stopWakePoller(); await saveMind(mind); sseHub.closeAll(); server.close(); process.exit(0); });
+  process.on("SIGINT", async () => { alive = false; stopWakePoller(); await saveMind(mind); sseHub.closeAll(); server.close(); await closePool(); process.exit(0); });
+  process.on("SIGTERM", async () => { alive = false; stopWakePoller(); await saveMind(mind); sseHub.closeAll(); server.close(); await closePool(); process.exit(0); });
 }
 
 // ===========================================================================

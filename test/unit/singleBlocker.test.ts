@@ -17,7 +17,7 @@ describe("shrinkToSingleBlocker", () => {
     expect(result.nextAction).toContain("fix env");
   });
 
-  it("prefers the highest priority ready item before chasing lower-priority dependency chains", () => {
+  it("prefers the highest priority ready item before chasing dependency chains", () => {
     const result = shrinkToSingleBlocker({
       goal: "ship feature",
       items: [
@@ -27,9 +27,9 @@ describe("shrinkToSingleBlocker", () => {
       ],
     });
 
-    expect(result.highestPriorityReady?.id).toBe("b");
+    expect(result.highestPriorityReady?.id).toBe("a");
     expect(result.uniqueBlocker).toBeNull();
-    expect(result.nextAction).toContain("collect fixture");
+    expect(result.nextAction).toContain("write patch");
   });
 
   it("returns the highest priority ready in-progress item when no blockers exist", () => {
@@ -44,5 +44,19 @@ describe("shrinkToSingleBlocker", () => {
     expect(result.highestPriorityReady?.id).toBe("a");
     expect(result.uniqueBlocker).toBeNull();
     expect(result.nextAction).toContain("collect evidence");
+  });
+
+  it("falls back safely when the root blocker has an empty title", () => {
+    const result = shrinkToSingleBlocker({
+      goal: "close loop",
+      items: [
+        { id: "a", title: "", status: "blocked", priority: 2 },
+        { id: "b", title: "write summary", status: "pending", priority: 3, blockedBy: ["a"] },
+      ],
+    });
+
+    expect(result.highestPriorityReady).toBeNull();
+    expect(result.uniqueBlocker?.id).toBe("a");
+    expect(result.nextAction).toBe("只解决阻塞：");
   });
 });

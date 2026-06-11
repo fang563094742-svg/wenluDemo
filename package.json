@@ -31,6 +31,7 @@
     "card:final": "tsx scripts/finalExecutionCard.ts",
     "api": "tsx src/api/start.ts",
     "api:dev": "tsx watch src/api/start.ts",
+    "gateway": "tsx src/gateway/start.ts",
     "learning:line": "tsx scripts/learningLine.ts",
     "cognitive:upgrade": "tsx data/output/cognitiveUpgradeLaw.ts",
     "response:strategy": "tsx scripts/responseStrategyLine.ts",
