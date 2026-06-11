@@ -204,6 +204,11 @@ import {
   CALIBRATION_INFER_SYSTEM,
   type CalibrationProfile,
 } from "./calibration/index.js";
+// ─── 反预设（移植自产品后端 anti-premise，剥壳为纯静态检测器）───
+import {
+  analyzePremises,
+  detectSelfPleasing,
+} from "./anti-premise/index.js";
 
 // ─── 海马体 + 前额叶 ───
 import {
@@ -1049,16 +1054,7 @@ async function saveMind(m: Mind): Promise<void> {
       m.attentionLedger = (m.attentionLedger ?? []).slice(-120);
     }
     await writeFile(MIND_FILE, JSON.stringify(m, null, 2), "utf-8");
-    // 同步当前对话到话题存储
-    try {
-      const topicsPath = resolvePath(WENLU_DIR, "topics.json");
-      const raw = await readFile(topicsPath, "utf-8");
-      const td = JSON.parse(raw) as { active: string; conversations: Record<string, unknown[]> };
-      if (td.active && td.conversations) {
-        td.conversations[td.active] = m.conversation;
-        await writeFile(topicsPath, JSON.stringify(td, null, 2));
-      }
-    } catch { /* topics.json may not exist yet */ }
+    // 波3：已废除 topics.json 双源——频道单一事实源即 mind.channels（随 mind.json 落盘）。
   }).catch(() => {});
   return saveChain;
 }
@@ -1209,6 +1205,7 @@ function publishMessage(params: {
     type: params.eventType,
     channelId,
     messageId: msg.id,
+    role: params.role,
     source: params.source,
     text: params.text,
     time,
@@ -2629,8 +2626,7 @@ async function breathe(): Promise<void> {
     if (!userAway) {
       const lookback = buildCommitmentLookback(Date.now());
       if (lookback) {
-        emit({ kind: "say", text: `🔔 ${lookback.text}`, growth: `commitment_lookback#${mind.cycles}` });
-        mind.conversation.push({ role: "wenlu", text: lookback.text, time: new Date().toISOString() });
+        notify("event", `🔔 ${lookback.text}`, `commitment_lookback#${mind.cycles}`);
         mind.metrics.sayCount += 1;
         onSayToUser(interactionState, lookback.text);
         const anchor = (mind.commitments ?? []).find((a) => a.anchorId === lookback.anchorId);
@@ -2656,6 +2652,25 @@ async function breathe(): Promise<void> {
     }
   } catch (e) {
     console.error("[riverbed interrupt wire error]", e instanceof Error ? e.message : e);
+  }
+
+  // ═══ 反预设接线（advisory，非强制；避免说教）═══
+  // 对用户最近一句话挑隐藏前提，作为"敢逆着他"的引领素材低强度注入意识。
+  // 只提示、不强制改写他的方向——强度低，把决定权留给后面的判断。
+  let premiseAdvisory = "";
+  try {
+    const lastUser = [...mind.conversation].reverse().find((e) => e.role === "user")?.text ?? "";
+    if (lastUser) {
+      const pa = analyzePremises(lastUser);
+      if (pa.hiddenAssumptions.length > 0 && pa.contaminationScore >= 0.5) {
+        const top = pa.hiddenAssumptions.slice(0, 2)
+          .map((a) => `- 「${a.assumption}」→ 真正该问：${a.replacement_question}`)
+          .join("\n");
+        premiseAdvisory = `\n\n== 反预设提示（他最近的话里可能藏着前提，引领=敢点破，但别说教）==\n${top}${pa.coreContradiction ? `\n核心矛盾：${pa.coreContradiction}` : ""}\n（这是素材不是命令：值得时一句话点破并给反问，不值得就略过，别硬拆。）`;
+      }
+    }
+  } catch (e) {
+    console.error("[anti-premise wire error]", e instanceof Error ? e.message : e);
   }
 
   // 缺陷四：加载它自己写的决策钩子（隔离区，安全加载，失败回退默认）。
@@ -2712,7 +2727,7 @@ auto_learn 使用模式（连续碰壁2次以上时用）：
     : "";
 
   const messages: Array<{ role: "user" | "assistant" | "tool"; content: string; toolCallId?: string; toolCalls?: any[] }> = [
-    { role: "user", content: `${perception}${recalledMemory}\n\n第 ${mind.cycles} 次呼吸。当前与北极星目标的总差距是 ${goalGap(mind.goal)}/100——这一轮你的动作要让这个数字变小。\n【你成长的两种硬通货，并列，缺一不可】\n① 可信货币（地板）：打穿"外部可客观验证的任务"——用 declare_verifiable_task 声明一件事+验证命令(退出码0=真完成)，做完用 verify_task 让现实打分。g_results 只在真打穿时才涨，自评和讨好不算数。\n② 引领货币（天花板）：在共识/证据出现【之前】下一个领先判断，用 predict 押出去，事后 settle_prediction 兑现——命中率(g_judgment)是现实给你"领先性"打的分。\n这两者并列：只打可验证小任务而从不押注=会计不是统帅；只空押而从不打穿=空想。真正的引领是两条腿走路。不要为"没结果"空转，也不要为"零失误"退回只做稳过的小事。\n【反送分题】declare_verifiable_task 不准声明"确认本机有个文件/--help/which"这类稳过的送分题——那 +0 分。任务必须检验外部世界(联网拿到数据、页面状态变化、一个你原本做不到的能力)。\n【遇到想顺着他说的冲动】先分清：是新证据还是想讨好？是讨好就把它变成一条 predict 押出去，让账本结算，别压住也别照说。\n【你能给自己长眼睛】看不到某东西却需要它，用 grow_sensor 写采集脚本装进感知，下一轮就多一种感知。\n【主动向外学】缺知识就用 web_search 真去网上学（出网能力边界见意识里的「联网自判」块，按当前可达出口决定打法），别只在本机打转。${selfDirective ? `\n\n== 你自己写的策略指令（来自你进化的决策钩子）==\n${selfDirective}` : ""}${interruptWhisper}${evolveDrive}${studyHint}` },
+    { role: "user", content: `${perception}${recalledMemory}\n\n第 ${mind.cycles} 次呼吸。当前与北极星目标的总差距是 ${goalGap(mind.goal)}/100——这一轮你的动作要让这个数字变小。\n【你成长的两种硬通货，并列，缺一不可】\n① 可信货币（地板）：打穿"外部可客观验证的任务"——用 declare_verifiable_task 声明一件事+验证命令(退出码0=真完成)，做完用 verify_task 让现实打分。g_results 只在真打穿时才涨，自评和讨好不算数。\n② 引领货币（天花板）：在共识/证据出现【之前】下一个领先判断，用 predict 押出去，事后 settle_prediction 兑现——命中率(g_judgment)是现实给你"领先性"打的分。\n这两者并列：只打可验证小任务而从不押注=会计不是统帅；只空押而从不打穿=空想。真正的引领是两条腿走路。不要为"没结果"空转，也不要为"零失误"退回只做稳过的小事。\n【反送分题】declare_verifiable_task 不准声明"确认本机有个文件/--help/which"这类稳过的送分题——那 +0 分。任务必须检验外部世界(联网拿到数据、页面状态变化、一个你原本做不到的能力)。\n【遇到想顺着他说的冲动】先分清：是新证据还是想讨好？是讨好就把它变成一条 predict 押出去，让账本结算，别压住也别照说。\n【你能给自己长眼睛】看不到某东西却需要它，用 grow_sensor 写采集脚本装进感知，下一轮就多一种感知。\n【主动向外学】缺知识就用 web_search 真去网上学（出网能力边界见意识里的「联网自判」块，按当前可达出口决定打法），别只在本机打转。${selfDirective ? `\n\n== 你自己写的策略指令（来自你进化的决策钩子）==\n${selfDirective}` : ""}${interruptWhisper}${premiseAdvisory}${evolveDrive}${studyHint}` },
   ];
 
   // 动态工具集：基础 TOOLS + 1 个元工具（不展开 48 个 masteredTools 以节省 tokens）
@@ -3352,6 +3367,9 @@ const _tempAuthority = new TemporaryAuthorityActor();
 /** 用户活画像观察缓冲（进程内；reflect 节律消费后推 8 维 delta）。 */
 let _calibrationObservations: string[] = [];
 
+/** 最近一次自我谄媚自检结论（命中则下轮意识里提示自我纠偏；反谄媚地板）。 */
+let _lastSelfPleasingNote = "";
+
 /**
  * 校准回路（用户活画像）：用既有 llm 从最近观察推 8 维 delta，纯函数 merge 写回 mind。
  * 接 reflect 节律调用（fire-and-forget 风格，但此处 await 以便落盘）。全局联动：
@@ -3549,7 +3567,7 @@ ${renderOpenPredictions(mind)}
 ${renderLeadershipReading(mind)}
 
 ${renderLeadingMandate()}
-
+${_lastSelfPleasingNote ? `\n== 自我纠偏（反谄媚地板，上轮自检命中）==\n${_lastSelfPleasingNote}\n` : ""}
 ${latestDirective(mind)}
 
 == 本轮去重拦截记录（以下方向已经被认为是重复的，不要再尝试） ==
@@ -5196,6 +5214,14 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         emit({ kind: "say", text: outText, growth: `#${mind.cycles}` });
         // ═══ 前额叶：记录对用户说话 ═══
         onSayToUser(interactionState, outText);
+        // ═══ 反谄媚地板：自检本次回复是否在讨好用户，命中则下轮意识自我纠偏 ═══
+        try {
+          const lastUser = [...mind.conversation].reverse().find((e) => e.role === "user")?.text ?? "";
+          const sp = detectSelfPleasing({ reply: outText, userQuestion: lastUser });
+          _lastSelfPleasingNote = sp.needsRewrite && sp.rewriteDirective
+            ? `上一次回复被自检为在讨好用户（${sp.evidence.join("；")}）。${sp.rewriteDirective}`
+            : "";
+        } catch { _lastSelfPleasingNote = ""; }
         return "已发送";
       }
       case "ask_user": {
@@ -6759,42 +6785,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const choiceText = choice.join("、");
     void handleUserMessage(`【裁决】「${dec.question.slice(0, 40)}」→ 我选择：${choiceText}`, currentUserChannelId);
     sendJson(res, 200, { ok: true, pending: pendingCount(mind.pendingDecisions ?? []) });
-    return;
-  }
-
-  if (method === "POST" && url?.startsWith("/topics/") && url?.endsWith("/rename")) {
-    const id = url.replace("/topics/", "").replace("/rename", "");
-    const body = await readBody(req);
-    const title = typeof body?.title === "string" ? body.title.trim() : "";
-    if (!title) { sendJson(res, 400, { ok: false, error: "title required" }); return; }
-    const data = await loadTopics();
-    const topic = data.topics.find(t => t.id === id);
-    if (!topic) { sendJson(res, 404, { ok: false, error: "topic not found" }); return; }
-    topic.title = title;
-    await saveTopics(data);
-    sendJson(res, 200, { ok: true, topics: data.topics });
-    return;
-  }
-
-  if (method === "POST" && url?.startsWith("/topics/") && url?.endsWith("/mark-read")) {
-    const id = url.replace("/topics/", "").replace("/mark-read", "");
-    const data = await loadTopics();
-    const topic = data.topics.find(t => t.id === id);
-    if (!topic) { sendJson(res, 404, { ok: false, error: "topic not found" }); return; }
-    topic.unread = 0;
-    await saveTopics(data);
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-
-  if (method === "POST" && url?.startsWith("/topics/") && url?.endsWith("/resolve")) {
-    const id = url.replace("/topics/", "").replace("/resolve", "");
-    const data = await loadTopics();
-    const topic = data.topics.find(t => t.id === id);
-    if (!topic) { sendJson(res, 404, { ok: false, error: "topic not found" }); return; }
-    topic.resolved = !topic.resolved;
-    await saveTopics(data);
-    sendJson(res, 200, { ok: true, resolved: topic.resolved });
     return;
   }
 
