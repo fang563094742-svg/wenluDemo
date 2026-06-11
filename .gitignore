@@ -141,7 +141,7 @@ native_app_probe/
 native_app_verification_evidence/
 native_app_front_probe
 native_app_truth
-verification/
+/verification/
 verification_evidence/
 verification_evidence_demo/
 verification_evidence_test/
@@ -203,3 +203,7 @@ data/verifiable-task-chain/ten-minute-action-trace-ledger.*
 data/verifiable-task-chain/ten-minute-action-trace-verification.*
 data/verifiable-task-chain/process-baseline-trace.md
 data/capability-line/million-learning-line.json
+
+# 工程源码：验证引擎（断言/证据采集），不可被上面的运行期 verification 规则误伤
+!src/verification/
+!src/verification/**
