@@ -1,7 +1,7 @@
 /**
  * MemoryStore —— 跨会话记忆持久化与偏好学习。
  *
- * 存储位置：~/.wenlu/memory.json
+ * 存储位置：项目本地数据目录下的 memory.json
  * 纯 JSON 文件，无数据库依赖。每次会话结束时保存。
  *
  * 记忆内容：
@@ -13,9 +13,8 @@
  */
 
 import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { resolveDataDir } from "../config/dataDir.js";
 import type { ScanSnapshot } from "../scanner/deepScan.js";
+import { getWenluDataDir, resolveWenluDataPath } from "../runtime/localDataDir.js";
 
 // ===========================================================================
 // 类型
@@ -78,8 +77,8 @@ export interface WenluMemory {
 // 路径
 // ===========================================================================
 
-const WENLU_DIR = resolveDataDir();
-const MEMORY_FILE = path.join(WENLU_DIR, "memory.json");
+const WENLU_DIR = getWenluDataDir();
+const MEMORY_FILE = resolveWenluDataPath("memory.json");
 
 // ===========================================================================
 // 加载 / 保存
@@ -99,7 +98,7 @@ export async function loadMemory(): Promise<WenluMemory> {
 }
 
 /**
- * 保存记忆到 ~/.wenlu/memory.json。自动创建目录。
+ * 保存记忆到项目本地数据目录。自动创建目录。
  */
 export async function saveMemory(memory: WenluMemory): Promise<void> {
   await fs.mkdir(WENLU_DIR, { recursive: true });

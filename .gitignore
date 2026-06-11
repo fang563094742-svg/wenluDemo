@@ -7,9 +7,11 @@ dist/
 
 # logs
 *.log
+.codex-runtime/
 
 # OS
 .DS_Store
+.wenlu-local/
 
 # runtime junk / generated artifacts
 artifacts/
@@ -30,6 +32,15 @@ data/output/*
 
 # frontend lives in its own repo (wenluDemoWeb)
 public/
+
+# local developer config
+.claude/settings.local.json
+
+# local business assets / runtime instances
+data/payment-assets/*.jpg
+data/payment-assets/*.png
+data/payment-assets/incoming/
+data/payment-assets/backups/
 
 # old mixed git history backup
 .git.old-mixed-history-backup/

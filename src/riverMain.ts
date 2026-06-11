@@ -25,7 +25,7 @@
  * E9 核心锚=外部可验证任务：declare_verifiable_task/verify_task，成败由 verifyCmd 退出码客观裁定，
  *     只有 passed 才涨 g_results——破谄媚根（成功不由"谁高兴"定，由现实定）。
  * E10 联网多源：web_search 改 Bing/百度/DDG 多源故障转移（修 DuckDuckGo 国内不可达）。
- * E11 自生长感知：~/.wenlu/sensors/ 可插拔器官 + grow_sensor 工具，perceive 每轮自动加载运行，
+ * E11 自生长感知：本地数据目录 sensors/ 可插拔器官 + grow_sensor 工具，perceive 每轮自动加载运行，
  *     差分省token、上限8、长期无贡献休眠；长出的眼睛不依赖 LLM 独立运转。
  * 已知总开关：以上"它主动用"均依赖 LLM 端点（当前第三方中转间歇 403/502）；端点死时机制就位但不自转，
  *     已长的感知器官仍独立工作。能力上限=底层模型上限（架构天花板，如实记录）。
@@ -64,6 +64,7 @@ try {
 } catch { /* .env 不存在则跳过 */ }
 
 import { validateApiKey, readBackupEndpoint, readLocalEndpoint } from "./config/config.js";
+import { appendDebugLog } from "./debug/logFile.js";
 import { Gpt54Provider } from "./llm/gpt54Provider.js";
 import { ResilientLlm, LlmExhaustedError } from "./llm/resilientLlm.js";
 import { LlmPool, type LlmPoolMember } from "./llm/llmPool.js";
@@ -209,6 +210,7 @@ import {
   analyzePremises,
   detectSelfPleasing,
 } from "./anti-premise/index.js";
+import { getWenluDataDir, resolveWenluDataPath } from "./runtime/localDataDir.js";
 
 // ─── 海马体 + 前额叶 ───
 import {
@@ -389,9 +391,9 @@ async function safeExec(
 // Mind：问路的唯一身份（P10：单一连续的自我）
 // ===========================================================================
 
-const WENLU_DIR = resolvePath(homedir(), ".wenlu");
+const WENLU_DIR = getWenluDataDir();
 const WENLU_BIN_DIR = resolvePath(WENLU_DIR, "bin");
-const MIND_FILE = resolvePath(WENLU_DIR, "mind.json");
+const MIND_FILE = resolveWenluDataPath("mind.json");
 
 /** P9: 结构化 belief，带置信度/来源/可推翻。只累加不删除——推翻时留痕。 */
 interface Belief {
@@ -1143,7 +1145,7 @@ let layeredMemory: LayeredMemory | null = null;
 let interactionState: InteractionState = createInteractionState();
 
 /** 文件路径 */
-const LAYERED_MEMORY_FILE = resolvePath(WENLU_DIR, "memory.json");
+const LAYERED_MEMORY_FILE = resolveWenluDataPath("memory.json");
 
 function emit(ev: Record<string, unknown>): void {
   // 自动为 say 事件注入时间戳，供前端显示
@@ -4731,7 +4733,7 @@ ${recentConv || "（最近没怎么聊）"}
 
 // ═══════════════════════════════════════════════════════════════════
 // 自生长感知器官系统：perceive 从"焊死几条"→"可自生长的活器官集合"。
-// 每个器官 = ~/.wenlu/sensors/ 下一个脚本(.py/.sh)，stdout=它看到的，退出码0=正常。
+// 每个器官 = 本地数据目录 sensors/ 下一个脚本(.py/.sh)，stdout=它看到的，退出码0=正常。
 // 它用 grow_sensor 自己造新眼睛；perceive 每轮自动跑所有活跃器官；
 // 输出做差分(无变化省token)、记贡献度，长期没贡献的休眠。不依赖 LLM 独立运转。
 // ═══════════════════════════════════════════════════════════════════
@@ -6124,16 +6126,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 async function handleUserMessage(text: string, channelId: string = DEFAULT_USER_CHANNEL_ID): Promise<void> {
   // 波2：把用户对话归属频道设为来源频道（缺省 chat_default），后续回复路由回此频道。
   currentUserChannelId = channelId && channelId.trim() ? channelId.trim() : DEFAULT_USER_CHANNEL_ID;
-  const fs = await import("fs");
-  fs.appendFileSync("/tmp/wenlu_route.log", `[handleUserMessage] text="${text.slice(0,80)}"\n`);
+  appendDebugLog("wenlu_route.log", `[handleUserMessage] text="${text.slice(0,80)}"\n`);
   const intentSurface = inferUserIntentSurface(text);
   const actionContract = buildActionContract(text, intentSurface);
   let immediateActionReport: ImmediateActionReport | null = null;
   if (actionContract && intentSurface.forceActionFirst && needsWorldTruthFirst(intentSurface)) {
-    fs.appendFileSync("/tmp/wenlu_route.log", `[frontdoor-contract] target=${actionContract.target}\n`);
+    appendDebugLog("wenlu_route.log", `[frontdoor-contract] target=${actionContract.target}\n`);
     immediateActionReport = await runImmediateActionContract(actionContract);
-    fs.appendFileSync(
-      "/tmp/wenlu_route.log",
+    appendDebugLog(
+      "wenlu_route.log",
       `[frontdoor-contract] started=${immediateActionReport.started} tools=${immediateActionReport.touchedTools.join(",")} evidence=${immediateActionReport.evidence.join(" | ").slice(0, 400)}\n`,
     );
   }
@@ -6151,7 +6152,7 @@ async function handleUserMessage(text: string, channelId: string = DEFAULT_USER_
         stopped++;
       }
     }
-    if (stopped > 0) { emitTasks(); fs.appendFileSync("/tmp/wenlu_route.log", `[stop] halted ${stopped} tasks\n`); }
+    if (stopped > 0) { emitTasks(); appendDebugLog("wenlu_route.log", `[stop] halted ${stopped} tasks\n`); }
   }
   // 现实/当前的我当裁判（第一性解：成功的裁定权交给外部反馈，不再自评自夸）。
   // 识别当前的我对产出的真实反馈：有用→g_results 真实+分并把最近一条 open 预测结算为 hit；
@@ -6175,7 +6176,10 @@ async function handleUserMessage(text: string, channelId: string = DEFAULT_USER_
         rDim.updatedAt = new Date().toISOString();
         if (mind.goal) mind.goal.updatedAt = new Date().toISOString();
       }
-      fs.appendFileSync("/tmp/wenlu_route.log", `[judge] ${positive ? "POS" : "NEG"} g_results=${mind.goal?.dimensions.find(d=>d.id==="g_results")?.current}\n`);
+      appendDebugLog(
+        "wenlu_route.log",
+        `[judge] ${positive ? "POS" : "NEG"} g_results=${mind.goal?.dimensions.find((d) => d.id === "g_results")?.current}\n`,
+      );
     }
   }
   // P4: 用户回应了
@@ -6380,15 +6384,18 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
   fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] starting, dynamicTools=${dynamicTools.length}\n`);
   while (steps < 15) {
     steps++;
-    fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] step=${steps}, calling llm.completeWithTools...\n`);
+    appendDebugLog("wenlu_route.log", `[reply-loop] step=${steps}, calling llm.completeWithTools...\n`);
     let resp: any;
     try {
       resp = await llm.completeWithTools({ system: consciousness, messages, tools: dynamicTools });
     } catch (e: any) {
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] LLM ERROR: ${e?.message ?? e}\n${e?.stack ?? ""}\n`);
+      appendDebugLog("wenlu_route.log", `[reply-loop] LLM ERROR: ${e?.message ?? e}\n${e?.stack ?? ""}\n`);
       break;
     }
-    fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] step=${steps} toolCalls=${resp.toolCalls?.length ?? 0} finalText=${(resp.finalText ?? "").slice(0,80)}\n`);
+    appendDebugLog(
+      "wenlu_route.log",
+      `[reply-loop] step=${steps} toolCalls=${resp.toolCalls?.length ?? 0} finalText=${(resp.finalText ?? "").slice(0, 80)}\n`,
+    );
     console.log(`[DEBUG-REPLY] step=${steps} toolCalls=${resp.toolCalls?.length ?? 0} finalText=${(resp.finalText ?? "").slice(0,80)}`);
     if (!resp.toolCalls || resp.toolCalls.length === 0) break;
     messages.push({ role: "assistant", content: resp.finalText ?? "", toolCalls: resp.toolCalls });
@@ -6418,15 +6425,23 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
         ]);
       } catch (e: any) {
         const msg = e?.message ?? String(e);
-        fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] TOOL ERROR name=${tc.name} id=${tc.id}: ${msg}\n${e?.stack ?? ""}\n`);
+        appendDebugLog(
+          "wenlu_route.log",
+          `[reply-loop] TOOL ERROR name=${tc.name} id=${tc.id}: ${msg}\n${e?.stack ?? ""}\n`,
+        );
         result = `工具执行失败: ${msg}`;
       }
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] TOOL DONE name=${tc.name} result=${String(result).slice(0,100)}\n`);
+      appendDebugLog(
+        "wenlu_route.log",
+        `[reply-loop] TOOL DONE name=${tc.name} result=${String(result).slice(0, 100)}\n`,
+      );
       messages.push({ role: "tool", content: result, toolCallId: tc.id });
       if (tc.name === "say_to_user" || tc.name === "ask_user") {
         if (typeof result === "string" && result.startsWith("错误：")) {
-          fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] REPLY TOOL INVALID name=${tc.name} id=${tc.id}: ${result}
-`);
+          appendDebugLog(
+            "wenlu_route.log",
+            `[reply-loop] REPLY TOOL INVALID name=${tc.name} id=${tc.id}: ${result}\n`,
+          );
         } else {
           replied = true;
         }
@@ -6681,15 +6696,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
   if (method === "POST" && url === "/say") {
-    const fs = await import("fs");
-    fs.appendFileSync("/tmp/wenlu_route.log", `[${new Date().toISOString()}] /say hit\n`);
+    appendDebugLog("wenlu_route.log", `[${new Date().toISOString()}] /say hit\n`);
     const body = await readBody(req);
-    fs.appendFileSync("/tmp/wenlu_route.log", `[${new Date().toISOString()}] body=${JSON.stringify(body)}\n`);
+    appendDebugLog("wenlu_route.log", `[${new Date().toISOString()}] body=${JSON.stringify(body)}\n`);
     const text = typeof body?.text === "string" ? body.text.trim() : "";
-    if (!text) { fs.appendFileSync("/tmp/wenlu_route.log", "empty text, 400\n"); sendJson(res, 400, { ok: false }); return; }
+    if (!text) { appendDebugLog("wenlu_route.log", "empty text, 400\n"); sendJson(res, 400, { ok: false }); return; }
     const sayChannelId = typeof body?.channelId === "string" && body.channelId.trim() ? body.channelId.trim() : DEFAULT_USER_CHANNEL_ID;
     sendJson(res, 200, { ok: true });
-    fs.appendFileSync("/tmp/wenlu_route.log", `calling handleUserMessage: "${text}"\n`);
+    appendDebugLog("wenlu_route.log", `calling handleUserMessage: "${text}"\n`);
     void handleUserMessage(text, sayChannelId);
     return;
   }
@@ -7079,8 +7093,8 @@ export async function main(): Promise<void> {
 // 辅助
 // ===========================================================================
 
-function sendJson(res: ServerResponse, status: number, data: unknown): void { const b = JSON.stringify(data); res.writeHead(status, { "Content-Type": "application/json" }); res.end(b); }
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> { return new Promise((r) => { const c: Buffer[] = []; let s = 0; req.on("data", (d: Buffer) => { s += d.length; if (s > 1e6) { req.destroy(); r(null); return; } c.push(d); }); req.on("end", () => { if (!s) { r(null); return; } try { r(JSON.parse(Buffer.concat(c).toString())); } catch { r(null); } }); req.on("error", () => r(null)); }); }
+function sendJson(res: ServerResponse, status: number, data: unknown): void { const b = Buffer.from(JSON.stringify(data), "utf8"); res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }); res.end(b); }
+async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> { return new Promise((r) => { const c: Buffer[] = []; let s = 0; req.on("data", (d: Buffer) => { s += d.length; if (s > 1e6) { req.destroy(); r(null); return; } c.push(d); }); req.on("end", () => { if (!s) { r(null); return; } try { r(JSON.parse(Buffer.concat(c).toString("utf8"))); } catch { r(null); } }); req.on("error", () => r(null)); }); }
 // 前端目录：优先用工程内 public/（合体布局）；若不存在则回退到并列的 ../wenluDemoWeb（前后端分离布局）。
 const PUBLIC_DIR = (() => {
   const local = resolvePath(process.cwd(), "public");
