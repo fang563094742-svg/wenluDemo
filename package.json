@@ -12,6 +12,7 @@
     "start": "tsx src/index.ts",
     "river": "export $(cat .env | xargs) && npx tsx src/riverMain.ts",
     "river:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-river-windows.ps1",
+    "river:supervised": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-river-supervised.ps1",
     "river:build": "tsc && export $(cat .env | xargs) && node dist/src/riverMain.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -42,7 +43,8 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.21.0",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -51,6 +53,7 @@
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.0",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "fast-check": "^3.23.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

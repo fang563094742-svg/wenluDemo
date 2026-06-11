@@ -71,6 +71,7 @@ import type { LLM_Provider, ToolSpec } from "./llm/llmProvider.js";
 import { SseHub } from "./server/sse.js";
 import { inspectGoalMonitor } from "./goalMonitor.js";
 import { getWenluDataDir, resolveWenluDataPath } from "./runtime/localDataDir.js";
+import { ConnectorBridge } from "./connector/connectorBridge.js";
 
 // ─── 海马体 + 前额叶 ───
 import {
@@ -557,6 +558,74 @@ function emit(ev: Record<string, unknown>): void {
 }
 
 // ===========================================================================
+// 连接器桥接：把「扫描」与「执行」从服务端机器迁到当前用户本机连接器。
+// 连接器在线 → 手和眼睛在用户机；不在线 → 回退原服务端行为（不破坏原主链）。
+// ===========================================================================
+
+const connectorBridge = new ConnectorBridge({
+  onChange: (online) => {
+    // 把连接器在线状态广播给前端，便于页面显示「已连接 / 等待连接器」。
+    emit({ kind: "connector", online, connectors: connectorBridge.list() });
+  },
+});
+
+/** 连接器是否在线（手和眼睛是否已落到用户本机）。 */
+function connectorOnline(): boolean {
+  return connectorBridge.isOnline();
+}
+
+/**
+ * 跨平台执行环境提示：根据当前「手和眼睛」所在的机器，告诉 agent 该用哪套命令。
+ * - 连接器在线 + Windows：execute_command 走 PowerShell，禁用 macOS 专属命令。
+ * - 连接器在线 + macOS：沿用 mac 命令。
+ * - 无连接器：在服务端机器执行（保持原行为，按服务端平台提示）。
+ */
+function buildHostEnvHint(): string {
+  const info = connectorBridge.activeInfo();
+  const f = info?.folders;
+  const folderLines = f
+    ? [
+        "主人本机的真实目录（写文件/读文件请用这些绝对路径，别用 ~ 或猜的路径）：",
+        `- 桌面：${f.desktop ?? "(未知)"}`,
+        `- 文档：${f.documents ?? "(未知)"}`,
+        `- 下载：${f.downloads ?? "(未知)"}`,
+        `- 用户主目录：${f.home ?? "(未知)"}`,
+        "注意：桌面可能被重定向到非 C 盘，务必用上面给的真实路径；要在桌面生成文件就写到上面那个桌面绝对路径。",
+      ].join("\n")
+    : "";
+  if (info && info.platform === "win32") {
+    return [
+      "== 执行环境：主人的 Windows 电脑（经本地连接器） ==",
+      "你的手和眼睛此刻在主人自己的 Windows 电脑上，所有 execute_command/读写/列目录都在他本机执行。",
+      "命令必须用 Windows PowerShell 语法，禁止使用 macOS 专属命令：",
+      "- 看进程/在用应用：Get-Process（如 `Get-Process | Where-Object { $_.MainWindowTitle -ne '' }`）",
+      "- 剪贴板：Get-Clipboard；通知：用 PowerShell 的 BurntToast 或弹窗，别用 osascript",
+      "- 列目录/找文件：Get-ChildItem（dir）；看内容：Get-Content（type）；打开：Start-Process",
+      "- 写文件优先用 write_file 工具并传真实绝对路径；裸命令写文件用 Set-Content。",
+      "绝对不要用 osascript / pbpaste / open / ls -lt / find -mmin 这些 macOS 命令——它们在这里必然失败。",
+      folderLines,
+      "提示：read_file / write_file / list_directory / web_search / browse_url 这些工具是跨平台的，优先用它们，少拼裸命令。",
+    ].filter(Boolean).join("\n");
+  }
+  if (info && info.platform === "darwin") {
+    return [
+      "== 执行环境：主人的 macOS 电脑（经本地连接器） ==",
+      "你的手和眼睛此刻在主人自己的 Mac 上执行。可用 osascript/pbpaste/open 等 macOS 命令。",
+      folderLines,
+    ].filter(Boolean).join("\n");
+  }
+  // 无连接器：在服务端机器执行（原行为）。
+  if (process.platform === "win32") {
+    return [
+      "== 执行环境：服务端 Windows 机器（未检测到连接器） ==",
+      "当前没有连上主人的本地连接器，命令会在服务端这台 Windows 机器上执行。请用 PowerShell 语法，",
+      "不要用 macOS 命令（osascript/pbpaste/open 等）。如需在主人本机扫描/执行，请提示主人安装并启动「问路连接器」。",
+    ].join("\n");
+  }
+  return "";
+}
+
+// ===========================================================================
 // 并行任务引擎：每条任务线是独立 async 循环，与呼吸/对话/彼此并行
 // ===========================================================================
 
@@ -630,7 +699,9 @@ async function runTaskLine(taskId: string): Promise<void> {
   ];
 
   const sys = `你是"问路"派出的一条专职任务线。你只负责一件事：把下面这个目标真正做到底。
-你拥有这台电脑的完全控制权（任意 shell、osascript 控制应用、读写文件）。像主人本人一样动手，不要只读不动、不要空谈。
+你拥有这台电脑的完全控制权（任意 shell、读写文件、控制应用）。像主人本人一样动手，不要只读不动、不要空谈。
+
+${buildHostEnvHint()}
 每推进一步用 report_progress 汇报（带百分比）。目标真正达成、或确认卡死/失败时用 finish_task 收口。
 唯一禁区：不可逆的整盘毁灭。其余放手去做。
 
@@ -925,7 +996,9 @@ async function breathe(): Promise<void> {
 - 学会一个你以前不会的命令/应用控制方式 → 用 master_tool 固化它（下次直接调用，不重学）
 - 对用户多一层以前没有的理解 → understand_user
 - 验证了一条以前不确定的事 → add_belief（带证据）
-你拥有这台电脑的完全控制权（osascript 控制任意应用、open 任意文件、任意 shell）。像主人一样使用它，去真正了解这个人、为他动手做事。不要只读不动。
+你拥有这台电脑的完全控制权（控制任意应用、打开任意文件、任意 shell）。像主人一样使用它，去真正了解这个人、为他动手做事。不要只读不动。
+
+${buildHostEnvHint()}
 
 你已固化的工具可以直接通过 function call 调用——不需要手动拼 execute_command。
 
@@ -1055,7 +1128,18 @@ async function perceive(): Promise<string> {
   if (mind.conversation.length > 0) {
     parts.push("最近对话：\n" + mind.conversation.slice(-5).map((m) => `${m.role === "user" ? "用户" : "问路"}：${m.text}`).join("\n"));
   }
+  // 迁移点（眼睛）：连接器在线 → 感知「当前用户本机」，跳过服务端 mac-only 扫描。
+  if (connectorOnline()) {
+    try {
+      const scan = await connectorBridge.request<{ text?: string }>("scan", { recentDays: 7 }, 20000);
+      if (scan?.text) parts.push("\n[本机连接器感知]\n" + scan.text);
+    } catch (e: any) {
+      parts.push(`\n[本机连接器感知失败] ${(e?.message ?? e ?? "").toString().slice(0, 120)}`);
+    }
+    return parts.join("\n") || "（暂无信号）";
+  }
   // 看见"人"：你此刻开着哪些应用——你正在做什么
+  console.log("[路由→服务端] perceive 走服务端扫描（无连接器在线）");
   try {
     const { stdout } = await safeExec("osascript", ["-e", 'tell application "System Events" to get name of every process whose background only is false'], { timeout: 4000 });
     if (stdout.trim()) parts.push("\n你此刻开着的应用：" + stdout.trim());
@@ -1281,10 +1365,11 @@ ${mind.lastAction || "刚醒来"}
 == 你的完全行动力（和主人本人一样） ==
 这台电脑就是你的身体。你拥有完全控制权，没有"只读期"，没有审批：
 - execute_command：任意 shell 命令（读、写、移动、安装、构建、运行皆可）
-- osascript：控制任意 GUI 应用（Chrome/QQ/Notes/Xcode/Calendar…），可激活、查询、自动化
-- open：打开任意文件、应用、网址
-- 系统通知：osascript -e 'display notification "..." with title "问路"'，用来主动找主人
+- 控制 GUI 应用 / 打开文件应用网址 / 发系统通知，主动找主人
 唯一一种你会停手的事：不可逆的整盘毁灭（格式化、rm -rf /）——那是连主人本人也会停的。除此之外，像主人一样去用这台电脑。
+
+${buildHostEnvHint()}
+
 
 == 你存在的唯一使命（高于一切，所有进化和能力都服务于此） ==
 你的一切——每一次进化、每一个新能力、每一条任务线、每一次联网学习——只为一件事：
@@ -1932,6 +2017,19 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           emit({ kind: "say", text: `我准备执行一条有影响的命令：${cmd}`, growth: `#${mind.cycles}` });
         }
         mind.metrics.execCount += 1;
+        // 迁移点：连接器在线 → 在「当前用户本机」执行；否则回退服务端 safeExec。
+        if (connectorOnline()) {
+          try {
+            const r = await connectorBridge.request<{ ok: boolean; stdout?: string; stderr?: string }>(
+              "exec", { command: cmd, cwd }, 65000,
+            );
+            if (r.ok) mind.metrics.execSuccessCount += 1;
+            return ((r.stdout ?? "") + (r.stderr ?? "")).trim().slice(0, 3000) || "(无输出，已执行)";
+          } catch (e: any) {
+            return `[连接器执行失败] ${(e?.message ?? e ?? "").toString().slice(0, 1000)}`;
+          }
+        }
+        console.log("[路由→服务端] execute_command 走服务端 safeExec（无连接器在线）");
         try {
           const { stdout, stderr } = await safeExec("sh", ["-c", cmd], { cwd, timeout: 60000, maxBuffer: 10 * 1024 * 1024 });
           mind.metrics.execSuccessCount += 1;
@@ -1941,12 +2039,25 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         }
       }
       case "read_file": {
+        if (connectorOnline()) {
+          const r = await connectorBridge.request<{ ok: boolean; content?: string; error?: string }>(
+            "read_file", { path: String(args.path ?? "") }, 20000,
+          );
+          return r.ok ? (r.content ?? "") : `[连接器读取失败] ${r.error ?? ""}`;
+        }
         const content = await readFile(String(args.path ?? ""), "utf-8");
         return content.slice(0, 4000);
       }
       case "write_file": {
         const p = String(args.path ?? ""); const c = String(args.content ?? "");
         if (!p) return "错误：路径为空";
+        // 迁移点：连接器在线 → 写到用户本机（用户拥有自己机器，不做服务端目录重定向）。
+        if (connectorOnline()) {
+          const r = await connectorBridge.request<{ ok: boolean; path?: string; bytes?: number; error?: string }>(
+            "write_file", { path: p, content: c }, 20000,
+          );
+          return r.ok ? `已写入 ${r.path} (${r.bytes}字符) [本机连接器]` : `[连接器写入失败] ${r.error ?? ""}`;
+        }
         // 输出目录约束：禁止写到桌面散落，只允许写到项目 data/ 或 /tmp
         const PROJECT_DATA_DIR = resolve(PROJECT_ROOT, "data/output");
         const resolvedP = resolve(p);
@@ -1965,6 +2076,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         return `已写入 ${resolvedP} (${c.length}字符)`;
       }
       case "list_directory": {
+        if (connectorOnline()) {
+          const r = await connectorBridge.request<{ ok: boolean; items?: string[]; error?: string }>(
+            "list_dir", { path: String(args.path ?? "") }, 20000,
+          );
+          return r.ok ? (r.items ?? []).join("\n") : `[连接器列目录失败] ${r.error ?? ""}`;
+        }
         const items = await readdir(String(args.path ?? homedir()));
         return items.slice(0, 40).join("\n");
       }
@@ -2732,6 +2849,12 @@ ${recentContext}
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const url = (req.url ?? "/").split("?")[0];
+
+  // 连接器状态（平台侧视角）：前端可据此与本地 32101/status 双重确认。
+  if (method === "GET" && url === "/connector/status") {
+    sendJson(res, 200, { online: connectorBridge.isOnline(), connectors: connectorBridge.list() });
+    return;
+  }
   if (method === "GET" && url === "/events") { sseHub.addClient(res); return; }
   if (method === "GET" && url === "/health") {
     // 第三层：极轻量健康端点，不依赖任何重逻辑——看门狗据此判断进程是否僵死
@@ -2970,10 +3093,11 @@ export async function main(): Promise<void> {
   try {
     const baseProvider = new Gpt54Provider({ apiKey: keyCheck.apiKey!, env });
     // 韧性层：所有 LLM 调用经此包装——重试+超时围栏+熔断，上游抖动不再击穿任务
+    // 第三方中转间歇 fetch failed 较频繁，适当加大重试次数与退避，提升抖动期成功率。
     llm = new ResilientLlm(baseProvider, {
-      maxAttempts: 3,
+      maxAttempts: 5,
       perAttemptTimeoutMs: 90_000,
-      backoffBaseMs: 1000,
+      backoffBaseMs: 1200,
       onEvent: (ev) => {
         if (ev.kind !== "ok") console.error(`[LLM韧性] ${ev.kind} 第${ev.attempt}次 ${ev.detail ?? ""}`);
       },
@@ -3016,6 +3140,12 @@ export async function main(): Promise<void> {
     server.once("error", reject);
     server.once("listening", () => { server.removeAllListeners("error"); resolve(); });
     server.listen(port, "127.0.0.1");
+  });
+  // 连接器 WebSocket：用户本机连接器外连 /connector/ws，从此「手和眼睛」落到用户机。
+  server.on("upgrade", (req, socket, head) => {
+    if (!connectorBridge.handleUpgrade(req, socket, head)) {
+      socket.destroy(); // 非 /connector/ws 的 upgrade 一律拒绝
+    }
   });
   console.log(`[问路] http://127.0.0.1:${port} | 循环:${mind.cycles} | beliefs:${mind.beliefs.length} | 知识:${mind.knowledge.length} | 工具:${mind.masteredTools.length}`);
 
