@@ -41,3 +41,4 @@ export * from "./riverbed-sense.js"; // Task 8
 export * from "./riverbed-store.js"; // Task 9 / 10
 export * from "./riverbed-render.js"; // Task 11
 export * from "./interrupt-engine.js"; // 打断引擎（移植自产品后端 past-riverbed，剥壳+接地）
+export * from "./temporary-authority.js"; // 双向回流临时权威层（移植自 bidirectional-reflux）
