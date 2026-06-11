@@ -6458,8 +6458,8 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
       mode: planCfg.mode,
     };
     const intent = await planFromContext(planCtx);
-    fs2.appendFileSync(
-      "/tmp/wenlu_route.log",
+    appendDebugLog(
+      "wenlu_route.log",
       `[plan-kernel] mode=${planCfg.mode} goal=${intent.goal.slice(0, 80)} subgoals=${intent.subgoals.length}\n`,
     );
     // enforce 才注入只读提示；dry-run 不注入，保证既有 say 输出逐字节不变。
@@ -6484,21 +6484,21 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
           }
         }
         if (spawnedFromPlan > 0) spawnedAny = true;
-        fs2.appendFileSync(
-          "/tmp/wenlu_route.log",
+        appendDebugLog(
+          "wenlu_route.log",
           `[dispatch-kernel] enforce landed waves=${plan.waves.length} lines=${spawnedFromPlan}\n`,
         );
       } catch (e: any) {
-        fs2.appendFileSync(
-          "/tmp/wenlu_route.log",
+        appendDebugLog(
+          "wenlu_route.log",
           `[dispatch-kernel] ERROR(non-blocking): ${e?.message ?? e}\n`,
         );
       }
     }
   } catch (e: any) {
-    fs2.appendFileSync("/tmp/wenlu_route.log", `[plan-kernel] ERROR(non-blocking): ${e?.message ?? e}\n`);
+    appendDebugLog("wenlu_route.log", `[plan-kernel] ERROR(non-blocking): ${e?.message ?? e}\n`);
   }
-  fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] starting, dynamicTools=${dynamicTools.length}\n`);
+  appendDebugLog("wenlu_route.log", `[reply-loop] starting, dynamicTools=${dynamicTools.length}\n`);
   while (steps < 15) {
     steps++;
     appendDebugLog("wenlu_route.log", `[reply-loop] step=${steps}, calling llm.completeWithTools...\n`);
@@ -6519,14 +6519,14 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
     let spawnedThisBatch = false;
     for (const tc of resp.toolCalls) {
       let result: string;
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] TOOL CALL name=${tc.name} args=${JSON.stringify(tc.arguments).slice(0,200)}\n`);
+      appendDebugLog("wenlu_route.log", `[reply-loop] TOOL CALL name=${tc.name} args=${JSON.stringify(tc.arguments).slice(0,200)}\n`);
       // C1·understand_user 滥用抑制：本轮已记录 1 次理解后，第 2 次起不真正写入
       // userModel，直接回灌提示把精力推向规划/执行/产出（每轮允许正常单次记录）。
       if (tc.name === "understand_user") {
         understandUserCount++;
         if (understandUserCount > 1) {
           result = "本轮已记录理解，请把精力转入规划/执行/产出，不要继续记录理解。";
-          fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] understand_user SUPPRESSED count=${understandUserCount}\n`);
+          appendDebugLog("wenlu_route.log", `[reply-loop] understand_user SUPPRESSED count=${understandUserCount}\n`);
           messages.push({ role: "tool", content: result, toolCallId: tc.id });
           continue;
         }
@@ -6580,13 +6580,13 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
       && !spawnedThisBatch
       && !touchedRealAction
     ) {
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] anti-idle-triggered user="${text.slice(0, 80)}"\n`);
+      appendDebugLog("wenlu_route.log", `[reply-loop] anti-idle-triggered user="${text.slice(0, 80)}"\n`);
       if (actionContract) {
         const recovery = await runImmediateActionContract(actionContract);
         touchedRealAction = recovery.started;
         if (recovery.started) {
           messages.push({ role: "tool", content: `系统已代为先起动作：${recovery.evidence.join("；").slice(0, 500)}`, toolCallId: `auto-${steps}` });
-          fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] anti-idle-recovery tools=${recovery.touchedTools.join(",")} evidence=${recovery.evidence.join(" | ").slice(0, 300)}\n`);
+          appendDebugLog("wenlu_route.log", `[reply-loop] anti-idle-recovery tools=${recovery.touchedTools.join(",")} evidence=${recovery.evidence.join(" | ").slice(0, 300)}\n`);
         }
       }
     }
@@ -6619,12 +6619,12 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
           t.blockedReason = `等待前置任务 ${spawnedTaskIds[i - 1]} 完成`;
         }
       }
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[Phase4] auto-chain created: ${chainId} steps=${spawnedTaskIds.join(",")}\n`);
+      appendDebugLog("wenlu_route.log", `[Phase4] auto-chain created: ${chainId} steps=${spawnedTaskIds.join(",")}\n`);
     }
     try {
       scheduleTasks();
     } catch (e: any) {
-      fs2.appendFileSync("/tmp/wenlu_route.log", `[reply-loop] post-spawn schedule ERROR(non-blocking): ${e?.message ?? e}\n`);
+      appendDebugLog("wenlu_route.log", `[reply-loop] post-spawn schedule ERROR(non-blocking): ${e?.message ?? e}\n`);
     }
   }
 
