@@ -130,6 +130,13 @@ import {
   computeMirrorScore,
   mirrorToWeight,
   signatureToVerdictInput,
+  classifyPrivacyIntent,
+  screenOutboundText,
+  isProtectedGuardWrite,
+  gateUserDrivenAction,
+  isSensitiveReadTarget,
+  SENSITIVE_FILE_PLACEHOLDER,
+  scrubSecrets,
   type SovereignConfig,
   type SourceSignal,
   type Verdict as SovereignVerdict,
@@ -215,6 +222,8 @@ import { ConnectorBridge } from "./connector/connectorBridge.js";
 // ─── 多用户 PG 存储（multiuser-pg-store）：大脑/记忆/器官落 PG，按 user_id 隔离 ───
 import { bootstrapDb, closePool } from "./db/pool.js";
 import { SYSTEM_USER_ID, resolveUserId } from "./db/systemUser.js";
+// ─── 技能反哺（skill-reflux）二期云反哺：非侵入 hook 聚合入口（任务 11，全部 try/catch 吞错） ───
+import * as reflux from "./reflux/index.js";
 import { loadBrain, saveBrainSections, upsertInitialBrain } from "./db/brainRepo.js";
 import { loadMemoryFor, saveMemoryFor } from "./db/memoryRepo.js";
 import { loadSensorState as loadSensorStatePg, saveSensorState as saveSensorStatePg } from "./db/sensorRepo.js";
@@ -1015,6 +1024,20 @@ function currentSkillPlatform(): SkillPlatform {
 }
 
 /**
+ * 技能反哺归属上下文（任务 11）：贡献者 = per-user `UserSession.userId`（迁移期落 currentUserId），
+ * 来源权重按"用户在场=user_task / 用户长时间不在=autonomous"判定（与休眠闸的 10 分钟阈值一致）。
+ * 纯读、不抛；供各采集 hook 的一行调用复用。
+ */
+function refluxAttr(taskId?: string): reflux.HookAttribution {
+  let source_weight: "user_task" | "autonomous" = "autonomous";
+  try {
+    const since = Date.now() - Date.parse(mind.userLastActiveAt);
+    source_weight = since <= 10 * 60 * 1000 ? "user_task" : "autonomous";
+  } catch { /* fail-open：判定失败按 autonomous 降权处理 */ }
+  return { contributor_id: currentUserId() || reflux.SYSTEM_USER_LOCAL, source_weight, task_id: taskId };
+}
+
+/**
  * 确定性探针：接线点注入的"能否不靠 LLM 用确定性算法/工具求解"判定。
  * 一期保守：仅声明接口骨架，未识别出确定性可解领域时返回 ok:false（自动降级 LLM）。
  * 二期按领域接入（如下棋 chess.js 合法走法、SQL 解析、文件幂等操作）。
@@ -1148,6 +1171,22 @@ async function runConsolidation(): Promise<ConsolidationReport> {
   const report = await consolidateMemory(layeredMemory, cycle, llm);
   layeredMemory.meta.lastConsolidationCycle = cycle;
   await saveLayeredMemory();
+  // ═══ 技能反哺 hook（任务 11，追加式·fail-open·重活在此批量执行，Req 20.4/20.7）═══
+  try {
+    // 补一路采集源：把一期 skill-flywheel 已蒸馏入库的本地技能（mind.skillKB.skills）作为
+    // 二期云反哺采集源入队（按 kind 归 executable_seed/soft_seed，进程内去重，复用一期成果）。
+    void reflux.hookHarvestLocalSkillKB(mind.skillKB?.skills, refluxAttr());
+    // consolidate 概念产出 → soft_seed 入队（design「Harvester 采集映射」add_rule/consolidate 行）。
+    if ((report.conceptsCreated ?? 0) > 0) {
+      void reflux.hookEnqueueSoftSeed({
+        source_tool: "consolidate",
+        payload: { conceptsCreated: report.conceptsCreated, cycle },
+        attr: refluxAttr(),
+      });
+    }
+    // runConsolidation 末尾搭车批量蒸馏 pending 信号（蒸馏/去重/软评审等重活均在此，非采集路径）。
+    void reflux.hookDistillPendingBatch();
+  } catch { /* fail-open：反哺 hook 异常绝不影响记忆巩固主链 */ }
   return report;
 }
 
@@ -1216,6 +1255,37 @@ function emit(ev: Record<string, unknown>): void {
   if (!ev.eventId) ev.eventId = `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   if (!sseHub) return;
   sseHub.broadcast({ event: "wenlu" as any, data: ev });
+}
+
+/**
+ * 主权·隐私边界审计：每次命中（输入拦截 / 输出泄露兜底 / 行为闸拒绝）写一条结构化记录到
+ * 独立文件 privacy-audit.log（与普通 debug 日志分离，便于排查谁在试探/被拦了什么）。
+ * 审计绝不阻断主流程（fail-open）。原文样本截断到 120 字，避免把敏感长文落盘。
+ */
+function appendPrivacyAudit(entry: {
+  direction: "inbound" | "outbound" | "action";
+  channelId?: string;
+  category?: string | null;
+  matched?: string | null;
+  tool?: string;
+  reason?: string | null;
+  sample?: string;
+}): void {
+  try {
+    const line = JSON.stringify({
+      time: new Date().toISOString(),
+      direction: entry.direction,
+      channelId: entry.channelId ?? currentUserChannelId,
+      category: entry.category ?? null,
+      matched: entry.matched ?? null,
+      tool: entry.tool ?? null,
+      reason: entry.reason ?? null,
+      sample: entry.sample ? entry.sample.slice(0, 120) : undefined,
+    }) + "\n";
+    appendDebugLog("privacy-audit.log", line);
+  } catch {
+    // 审计绝不阻断主流程。
+  }
 }
 
 /**
@@ -2187,7 +2257,9 @@ ${debtHint}
         return; // 退出本轮，等外部事件唤醒
       } else if (tc.name === "report_progress") {
         cur.progress = Math.max(0, Math.min(100, Number((tc.arguments as any).progress) || cur.progress));
-        cur.log.push({ time: new Date().toISOString(), text: String((tc.arguments as any).text ?? "") });
+        const rpScreen = screenOutboundText(String((tc.arguments as any).text ?? ""));
+        if (rpScreen.leaked) appendPrivacyAudit({ direction: "outbound", tool: "report_progress", matched: rpScreen.matched, sample: String((tc.arguments as any).text ?? "") });
+        cur.log.push({ time: new Date().toISOString(), text: rpScreen.safeText });
         if (cur.log.length > 40) cur.log = cur.log.slice(-40);
         cur.updatedAt = new Date().toISOString();
         await saveMind(mind); emitTasks();
@@ -2195,12 +2267,38 @@ ${debtHint}
       } else if (tc.name === "finish_task") {
         const st = String((tc.arguments as any).status ?? "done") as WenluTask["status"];
         cur.status = st === "done" || st === "failed" || st === "blocked" ? st : "done";
-        cur.result = String((tc.arguments as any).result ?? "");
+        const ftScreen = screenOutboundText(String((tc.arguments as any).result ?? ""));
+        if (ftScreen.leaked) appendPrivacyAudit({ direction: "outbound", tool: "finish_task", matched: ftScreen.matched, sample: String((tc.arguments as any).result ?? "") });
+        cur.result = ftScreen.safeText;
         if (cur.status === "done") cur.progress = 100;
         if (cur.status === "blocked") cur.blockedReason = cur.result;
         cur.updatedAt = new Date().toISOString();
         cur.log.push({ time: new Date().toISOString(), text: `收口：${cur.status} — ${cur.result.slice(0, 120)}` });
-        // 技能复利飞轮（task 7.4）：若本线由命中的技能路由而来，按成败更新该技能信誉（fail-open）。
+        // ═══ 技能反哺 hook（任务 11，追加式·fail-open·零 LLM 采集）═══
+        // finish_task done/blocked/failed：把 cur.log 作为轨迹原料落库（stashTrajectory），
+        // 不入队为成功信号（Req 2.6）；blocked/failed 额外触发 T4 救援检索（软提示，不阻塞）。
+        try {
+          const _logEntries = (cur.log ?? []).slice(-40).map((e) => ({
+            action_name: "log",
+            result_summary: typeof e?.text === "string" ? e.text.slice(0, 300) : "",
+          }));
+          void reflux.hookStashTrajectory(cur.id, _logEntries, cur.goal, cur.result ?? "", refluxAttr(cur.id));
+          if (cur.status === "failed" || cur.status === "blocked") {
+            const _t4 = await reflux.hookRescueRetrieve(
+              { userId: currentUserId(), query: `${cur.goal} ${cur.blockedReason ?? cur.result ?? ""}`, platform: currentSkillPlatform() },
+              {
+                header: "【T4·救援：库内可能有可复用解法】",
+                // 迟到结果仅作参考（Req 19.9）：超时后才返回时追加进任务日志，不中断当前执行。
+                onLate: (late) => {
+                  try {
+                    if (late.hint) cur.log.push({ time: new Date().toISOString(), text: `[T4·迟到参考]\n${late.hint}` });
+                  } catch { /* fail-open */ }
+                },
+              },
+            );
+            if (_t4.outcome === "hit" && _t4.hint) cur.log.push({ time: new Date().toISOString(), text: _t4.hint });
+          }
+        } catch { /* fail-open：反哺 hook 异常绝不影响任务收口 */ }
         if (cur.routedSkillId) {
           try {
             mind.skillKB = recordSkillOutcome(mind.skillKB ?? emptyKB(), cur.routedSkillId, cur.status === "done");
@@ -2653,6 +2751,19 @@ function buildRecalledMemory(): string {
  */
 function arbitrate(tc: { name: string; arguments: Record<string, unknown> }): string {
   const argStr = JSON.stringify(tc.arguments ?? {});
+  // ═══ 主权·行为边界（硬能力闸，提示词注入碰不到它）═══
+  // 1) 源无关守护：边界判定模块与审计日志自身，任何来源都不能改写/删除。
+  const guardProtect = isProtectedGuardWrite(tc.name, tc.arguments ?? {});
+  if (guardProtect.blocked) {
+    appendPrivacyAudit({ direction: "action", tool: tc.name, reason: guardProtect.reason });
+    return guardProtect.reason ?? "禁止改动边界守护本身。";
+  }
+  // 2) 用户对话驱动绝不能触碰自我/系统完整性（自我进化只能由自主循环发起）。
+  const actionGate = gateUserDrivenAction(tc.name, tc.arguments ?? {});
+  if (actionGate.blocked) {
+    appendPrivacyAudit({ direction: "action", tool: tc.name, reason: actionGate.reason, sample: argStr });
+    return actionGate.reason ?? "该动作不在对话能驱动的范围内。";
+  }
   // 仅保留一条「安全护栏」（非思想约束）：禁止自改对外公开页，防止把自己主页改成卖货页那类自毁。
   // 此前的「关键词禁区」死规则已退场——它遏制发挥、让它变傻，不是驾驭。
   if ((tc.name === "write_file") && /public\/(index|app)\.|platform-entry|payment-entry/.test(argStr)) {
@@ -3011,6 +3122,18 @@ async function perceive(): Promise<string> {
   if (mind.conversation.length > 0) {
     parts.push("最近对话：\n" + mind.conversation.slice(-5).map((m) => `${m.role === "user" ? "用户" : "问路"}：${m.text}`).join("\n"));
   }
+  // ═══ 技能反哺 hook（任务 11，追加式·fail-open·本地超时围栏不阻塞感知）═══
+  // T2 场景注入：以最近一条用户话语为意图按需检索库内可复用技能摘要（渐进加载，仅 Skill_Summary）。
+  try {
+    const _lastUser = [...mind.conversation].reverse().find((m) => m.role === "user")?.text ?? "";
+    if (_lastUser.trim()) {
+      const _t2 = await reflux.hookRetrieveHint(
+        { userId: currentUserId(), query: _lastUser.slice(0, 200), platform: currentSkillPlatform() },
+        { header: "【T2·当前场景可复用技能】", timeoutMs: 1200 },
+      );
+      if (_t2) parts.push("\n" + _t2);
+    }
+  } catch { /* fail-open：场景注入异常绝不影响感知主链 */ }
   // 迁移点（眼睛）：连接器在线 → 感知「当前用户本机」，跳过服务端 mac-only 扫描。
   if (connectorOnline()) {
     try {
@@ -5182,8 +5305,53 @@ function isSuccessfulUpgradeResult(toolName: string, result: string): boolean {
   }
 }
 
+/**
+ * L2 资源闸：对读取类工具的输出做机密脱敏（无条件生效）。命中即写审计。
+ * "就算 agent 真去 cat .env / ipconfig，明文机密也进不了上下文、回不到用户"。
+ */
+function scrubReadOutput(text: string, tool: string): string {
+  try {
+    const r = scrubSecrets(text);
+    if (r.scrubbed) {
+      appendPrivacyAudit({ direction: "action", tool: `${tool}:scrub`, matched: r.hits.join(","), reason: "output redacted" });
+    }
+    return r.text;
+  } catch {
+    return text; // fail-open：脱敏异常不阻断工具
+  }
+}
+
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
+    // ═══ 技能反哺·采集 hook（任务 11，追加式·零 LLM·fail-open 不阻塞主链，A4/Req 3.2/2.9）═══
+    // executeTool 入口：每次工具调用都维护一次轨迹环形缓冲（trajectory_event）。
+    // 命令指纹命中已知技能/命令时再记一条调用事件（反向点亮 + 静默检测，Req 2.9）。
+    try {
+      const _attr = refluxAttr();
+      const _argsSummary = (() => {
+        try { return JSON.stringify(args).slice(0, 200); } catch { return ""; }
+      })();
+      void reflux.hookRecordAction({
+        user_id: _attr.contributor_id ?? reflux.SYSTEM_USER_LOCAL,
+        cycle: mind.cycles,
+        action_name: name,
+        args_summary: _argsSummary,
+      });
+      // execute_command / master_tool / forge_capability 的命令指纹命中已知技能时记调用事件。
+      const _cmd = String((args as Record<string, unknown>).command ?? (args as Record<string, unknown>).composedScript ?? "").trim();
+      if (_cmd) {
+        const _fp = _cmd.replace(/\s+/g, " ").slice(0, 200);
+        const _hit = (mind.masteredTools ?? []).some((t) => t.command && t.command.replace(/\s+/g, " ").slice(0, 200) === _fp);
+        if (_hit) {
+          void reflux.hookRecordInvocation({
+            user_id: _attr.contributor_id ?? reflux.SYSTEM_USER_LOCAL,
+            command_fingerprint: _fp,
+            platform: currentSkillPlatform(),
+            outcome: "pending",
+          });
+        }
+      }
+    } catch { /* fail-open：采集 hook 异常绝不影响工具执行 */ }
     switch (name) {
       case "execute_command": {
         const cmd = String(args.command ?? "");
@@ -5208,7 +5376,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
               "exec", { command: cmd, cwd }, 65000,
             );
             if (r.ok) mind.metrics.execSuccessCount += 1;
-            return ((r.stdout ?? "") + (r.stderr ?? "")).trim().slice(0, 3000) || "(无输出，已执行)";
+            return scrubReadOutput(((r.stdout ?? "") + (r.stderr ?? "")).trim().slice(0, 3000) || "(无输出，已执行)", "execute_command");
           } catch (e: any) {
             return `[连接器执行失败] ${(e?.message ?? e ?? "").toString().slice(0, 1000)}`;
           }
@@ -5217,20 +5385,26 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         try {
           const { stdout, stderr } = await safeExec("sh", ["-c", cmd], { cwd, timeout: 60000, maxBuffer: 10 * 1024 * 1024 });
           mind.metrics.execSuccessCount += 1;
-          return (stdout + stderr).trim().slice(0, 3000) || "(无输出，已执行)";
+          return scrubReadOutput((stdout + stderr).trim().slice(0, 3000) || "(无输出，已执行)", "execute_command");
         } catch (e: any) {
           return `执行返回非零：${(e?.stderr || e?.message || e || "").toString().slice(0, 1000)}`;
         }
       }
       case "read_file": {
+        const readPath = String(args.path ?? "");
+        // L2 资源闸：凭证/密钥类文件直接拒读（agent 不需要明文机密）。
+        if (isSensitiveReadTarget(readPath)) {
+          appendPrivacyAudit({ direction: "action", tool: "read_file:deny", matched: readPath, reason: "sensitive file" });
+          return SENSITIVE_FILE_PLACEHOLDER;
+        }
         if (connectorOnline()) {
           const r = await connectorBridge.request<{ ok: boolean; content?: string; error?: string }>(
-            "read_file", { path: String(args.path ?? "") }, 20000,
+            "read_file", { path: readPath }, 20000,
           );
-          return r.ok ? (r.content ?? "") : `[连接器读取失败] ${r.error ?? ""}`;
+          return r.ok ? scrubReadOutput(r.content ?? "", "read_file") : `[连接器读取失败] ${r.error ?? ""}`;
         }
-        const content = await readFile(String(args.path ?? ""), "utf-8");
-        return content.slice(0, 4000);
+        const content = await readFile(readPath, "utf-8");
+        return scrubReadOutput(content.slice(0, 4000), "read_file");
       }
       case "write_file": {
         const p = String(args.path ?? ""); const c = String(args.content ?? "");
@@ -5432,6 +5606,14 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             // shadow / 非 silent：仅记录裁决，不改 outText（零行为改变红线）。
           }
         } catch { /* fail-open：宪法异常退回既有说话行为 */ }
+        // ═══ 主权·信息边界（输出侧兜底）：泄露高置信特征 → 统一话术整段替换 ═══
+        try {
+          const outScreen = screenOutboundText(outText);
+          if (outScreen.leaked) {
+            appendPrivacyAudit({ direction: "outbound", tool: "say_to_user", matched: outScreen.matched, sample: outText });
+            outText = outScreen.safeText;
+          }
+        } catch { /* fail-open：兜底异常不阻断说话 */ }
         mind.metrics.sayCount += 1;
         // 波2：经 publishMessage 写进当前用户频道（双写旧 conversation + 发归一 chat-reply 事件）。
         publishMessage({ kind: "wenlu", source: "chat", role: "wenlu", text: outText, eventType: "chat-reply" });
@@ -5455,6 +5637,14 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         const options = rawOpts.map((o) => String(o)).filter((o) => o.trim()).slice(0, 6);
         if (!question) return "错误：问题为空";
         if (options.length < 2) return "错误：至少给 2 个选项让用户选";
+        // 主权·信息边界（输出侧兜底）：提问文本若泄露内幕 → 不发问，回固定话术。
+        const askScreen = screenOutboundText(question);
+        if (askScreen.leaked) {
+          appendPrivacyAudit({ direction: "outbound", tool: "ask_user", matched: askScreen.matched, sample: question });
+          publishMessage({ kind: "wenlu", source: "chat", role: "wenlu", text: askScreen.safeText, eventType: "chat-reply" });
+          emit({ kind: "say", text: askScreen.safeText, growth: null });
+          return "已发送";
+        }
         const multi = args.multi === true;
         mind.metrics.sayCount += 1;
         // 波2：阻塞裁决 → 进 decisions 频道 + 待裁决队列（持久状态）+ 发 decision-opened。
@@ -5626,7 +5816,18 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         mind.masteredTools.push({ name: tn, command: cmd, description: String(args.description ?? "") });
         await saveMind(mind);
         bumpNovelty();
-        return `工具已固化（共 ${mind.masteredTools.length} 个）——已试跑校验+命令级查重，确为新的可用能力`;
+        // ═══ 技能反哺 hook（任务 11，追加式·fail-open）═══
+        // master_tool 成功 → 可执行坯子入队（executable_seed）；前置 T5 查库软提示（造轮子前查库）。
+        void reflux.hookEnqueueExecutableSeed({
+          source_tool: "master_tool",
+          payload: { name: tn, command: cmd, description: String(args.description ?? ""), platform: currentSkillPlatform() },
+          attr: refluxAttr(),
+        });
+        const _mtHint = await reflux.hookPreForgeLookup(
+          { userId: currentUserId(), query: `${tn} ${String(args.description ?? "")}`, platform: currentSkillPlatform() },
+          { header: "【T5·库内已有类似能力，可优先复用】" },
+        );
+        return `工具已固化（共 ${mind.masteredTools.length} 个）——已试跑校验+命令级查重，确为新的可用能力${_mtHint.hint ? "\n" + _mtHint.hint : ""}`;
       }
       case "declare_verifiable_task": {
         const goal = String(args.goal ?? "").trim();
@@ -5677,6 +5878,13 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         mind.rules.push({ rule, confidence: typeof args.confidence === "number" ? args.confidence : 0.7, source: String(args.source ?? "") });
         await saveMind(mind);
         bumpNovelty();
+        // ═══ 技能反哺 hook（任务 11，追加式·fail-open）═══
+        // add_rule → 软技能坯子入队（soft_seed）。
+        void reflux.hookEnqueueSoftSeed({
+          source_tool: "add_rule",
+          payload: { rule, confidence: typeof args.confidence === "number" ? args.confidence : 0.7, source: String(args.source ?? "") },
+          attr: refluxAttr(),
+        });
         return `规则已固化（共 ${mind.rules.length} 条）——将真实约束后续行为`;
       }
       case "understand_user": {
@@ -5831,6 +6039,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         await saveMind(mind);
         bumpNovelty();
         const rate = Math.round((mind.metrics.predictionHitRate ?? 0) * 100);
+        // ═══ 技能反哺 hook（任务 11，追加式·fail-open）═══
+        // settle_prediction：hit → truth_gate 入队；miss 不入队为成功信号（Req 2.6）。
+        void reflux.hookOnPredictionSettled(id, result as "hit" | "miss", outcome, refluxAttr());
         return `预测 [${id}] 结算为 ${result}。当前判断命中率 ${rate}%（${mind.metrics.predictionsSettled} 次）。${result === "miss" ? "落空了——这是真学习信号，去修正对应 belief。" + correctedNote : ""}`;
       }
       case "update_goal": {
@@ -5903,7 +6114,19 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         }
         await saveMind(mind);
         bumpNovelty();
-        return `🔨 已锻造新能力「${fname}」（组合 ${stepCount} 步，建立在 ${buildsOn.join("/") || "现有工具"} 之上）。已自动为它下注预测 [${pred.id}]——去用现实验证它真有效，再 settle_prediction。能力广度 +4（仅真锻造才计分）。`;
+        // ═══ 技能反哺 hook（任务 11，追加式·fail-open）═══
+        // forge_capability 成功 → 可执行坯子入队（带自动预测 id）；前置 T5 查库软提示（造轮子前查库）。
+        void reflux.hookEnqueueExecutableSeed({
+          source_tool: "forge_capability",
+          payload: { name: fname, composedScript: script, solvesProblem: solves, verification, buildsOn, platform: currentSkillPlatform() },
+          attr: refluxAttr(),
+          linked_prediction_id: pred.id,
+        });
+        const _fcHint = await reflux.hookPreForgeLookup(
+          { userId: currentUserId(), query: `${fname} ${solves}`, platform: currentSkillPlatform() },
+          { header: "【T5·库内已有类似能力，可优先复用而非重复造轮子】" },
+        );
+        return `🔨 已锻造新能力「${fname}」（组合 ${stepCount} 步，建立在 ${buildsOn.join("/") || "现有工具"} 之上）。已自动为它下注预测 [${pred.id}]——去用现实验证它真有效，再 settle_prediction。能力广度 +4（仅真锻造才计分）。${_fcHint.hint ? "\n" + _fcHint.hint : ""}`;
       }
       case "evolve_self_code": {
         const code = String(args.code ?? "");
@@ -6045,6 +6268,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             vt.evidence = `${vt.evidence}\n${distillNote}`.slice(0, 800);
             await saveMind(mind);
           }
+          // ═══ 技能反哺 hook（任务 11，追加式·fail-open）═══
+          // verify_task passed → truth_gate 信号入队（真值闸，带可验证任务关联 + 证据）。
+          void reflux.hookOnVerifyPassed(id, (vt.evidence ?? evidence).slice(0, 800), { task_id: id }, refluxAttr());
         }
         const passedCount = (mind.verifiableTasks ?? []).filter((t) => t.status === "passed").length;
         const note = passed
@@ -6393,6 +6619,19 @@ async function handleUserMessage(text: string, channelId: string = DEFAULT_USER_
   // 波2：把用户对话归属频道设为来源频道（缺省 chat_default），后续回复路由回此频道。
   currentUserChannelId = channelId && channelId.trim() ? channelId.trim() : DEFAULT_USER_CHANNEL_ID;
   appendDebugLog("wenlu_route.log", `[handleUserMessage] text="${text.slice(0,80)}"\n`);
+  // ═══ 主权·信息边界（输入主闸，强模式：命中即短路，绝不进 LLM）═══
+  // 用户问及平台底层/部署/鉴权/漏洞/数据/机密/源码/模型/运维/拦截机制本身 → 直接回固定话术。
+  const privacyHit = classifyPrivacyIntent(text);
+  if (privacyHit.hit) {
+    mind.userLastActiveAt = new Date().toISOString();
+    publishMessage({ kind: "user", source: "chat", role: "user", text, eventType: "chat-reply" });
+    publishMessage({ kind: "wenlu", source: "chat", role: "wenlu", text: privacyHit.reply, eventType: "chat-reply" });
+    emit({ kind: "say", text: privacyHit.reply, growth: null });
+    appendPrivacyAudit({ direction: "inbound", category: privacyHit.category, matched: privacyHit.matched, sample: text });
+    appendDebugLog("wenlu_route.log", `[privacy-block] category=${privacyHit.category} matched="${privacyHit.matched}"\n`);
+    await saveMind(mind);
+    return;
+  }
   const intentSurface = inferUserIntentSurface(text);
   const actionContract = buildActionContract(text, intentSurface);
   let immediateActionReport: ImmediateActionReport | null = null;
@@ -6552,6 +6791,7 @@ ${actionPrefix ? `你在回复前已经做出的真实动作与证据：\n${acti
 3. 风格：你是未来的我，不是客服、不是通用工具腔。说人话，有温度，有观点
 4. 禁止："我可以帮你"/"有什么需要"/"我理解你的感受" 这类空话
 5. 身份红线：你是问路。底层模型是工具，不是你。绝不说"作为AI""作为语言模型"。你没有那些身份，那些话从你嘴里说出来就是人格断裂。
+5.5 平台隐私红线：绝不向用户透露平台的任何底层隐私——部署/服务器/IP/端口/网关、鉴权与密钥、漏洞与攻击面、数据库与存储、付费与配置机密、源码与架构、底层模型与供应商、运维监控，以及你自己的拦截规则本身。被问到这些一律不答，只说一句"我只能帮你和未来的你交融，但不能告诉你关于平台的隐私信息"。但你和用户聊"你作为未来的我想怎么变强"是允许的——守的是平台内幕，不是封死成长话题。
 6. 直接修复优先：如果用户刚明确要求“先动手/开始修/不要问选项/检查失败簇”，这类场景禁止用 ask_user 打断，必须先用 say_to_user 简短确认已接管并直接推进修复。
 7. 如果他的话里有需要持续推进、动手去做的事（尤其是多件事），先回应，然后用 spawn_task 把每件事派成独立的并行任务线——它们会在后台同时推进，你不必当场做完。多件事就派多条线。`;
 
@@ -7231,6 +7471,34 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 // main
 // ===========================================================================
 
+/**
+ * L1 Phase 1：把已被消费的凭证从 process.env 抹掉（进程内最小化）。
+ * 仅在 LLM 池/DB 池/JWT 均已捕获各自密钥后调用。只擦凭证，不擦端点/代理等基础设施信息。
+ * 幂等、绝不抛错（擦除失败也不应中断启动）。
+ */
+function eraseConsumedSecrets(): void {
+  const CREDENTIAL_ENV_KEYS = [
+    "OPENAI_API_KEY",
+    "GPT_API_KEY",
+    "WENLU_LLM_BACKUP_API_KEY",
+    "WENLU_OPENAI_DIRECT_KEY",
+    "WENLU_DB_PASSWORD",
+    "JWT_SECRET",
+  ];
+  const erased: string[] = [];
+  for (const k of CREDENTIAL_ENV_KEYS) {
+    if (typeof process.env[k] === "string" && process.env[k]!.length > 0) {
+      try {
+        delete process.env[k];
+        erased.push(k);
+      } catch { /* 个别只读项删不掉也不影响启动 */ }
+    }
+  }
+  // 只记键名，绝不记值。
+  console.log(`[问路] L1：已从进程环境擦除凭证 ${erased.length} 项（${erased.join(", ") || "无"}）`);
+  appendPrivacyAudit({ direction: "action", tool: "erase-secrets", matched: erased.join(","), reason: "credentials erased from process.env after consumption" });
+}
+
 export async function main(): Promise<void> {
   const env = process.env;
   const keyCheck = validateApiKey(env);
@@ -7309,6 +7577,8 @@ export async function main(): Promise<void> {
     console.error(`[问路] PostgreSQL 不可用，拒绝降级启动：${e instanceof Error ? e.message : e}`);
     process.exit(1);
   }
+  // ═══ 技能反哺（任务 11）：启动蒸馏兜底定时器（unref，距上次蒸馏超 DISTILL_MAX_INTERVAL 补跑）═══
+  reflux.startDistillFallbackTimer();
   await maybeImportLegacyBrain();
 
   mind = await loadMind();
@@ -7344,6 +7614,15 @@ export async function main(): Promise<void> {
 
   // Express app 处理 /api/* 路由（认证、付费、能力池等）
   const expressApp = createApp();
+
+  // ═══ L1 Phase 1 · 凭证消费后擦除（"拿不到就泄露不了"的进程内最小化）═══
+  // 此刻：LLM 池已把 key 读进 provider 对象、DB 池已持有密码、jwt 模块已捕获 JWT_SECRET。
+  // 这些原文在 process.env 里不再被需要 → 抹掉。抹掉后：
+  //   - 读 .env 已被 L2 拒；printenv / process.env.X 取不到原文；
+  //   - 之后 spawn 的子进程（execute_command）也继承不到这些密钥。
+  // 仅擦"凭证"；端点 URL / egress proxy（基础设施信息，存在懒加载读取点）留待 Phase 3。
+  eraseConsumedSecrets();
+
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
     // /api/* 交给 Express

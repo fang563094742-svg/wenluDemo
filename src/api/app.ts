@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { authRouter } from "../auth/routes.js";
 import { capabilityRouter } from "../capability-pool/routes.js";
+import { createRefluxRouters } from "../reflux/routes.js";
 
 const paymentConfigPath = resolve(process.cwd(), "data/payment-config.json");
 
@@ -39,6 +40,12 @@ export function createApp(): express.Application {
   // ── 路由挂载 ────────────────────────────────────────────────────────────
   app.use("/api/auth", authRouter);
   app.use("/api/capabilities", capabilityRouter);
+
+  // 技能反哺（skill-reflux）路由：/api/skills（list/expand/inherit/mine）、
+  // /api/reflux（onboard/stats/pending），整体经 requireAuth，pending 额外经 requireAdmin。
+  const { skillRouter, refluxRouter } = createRefluxRouters();
+  app.use("/api/skills", skillRouter);
+  app.use("/api/reflux", refluxRouter);
 
   app.get("/api/payment-options", async (_req, res) => {
     try {

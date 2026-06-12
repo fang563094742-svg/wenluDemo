@@ -304,3 +304,115 @@ export async function getPoolStats(): Promise<{
     total_uses: Number(row.total_uses),
   };
 }
+
+// ─── skill-reflux 扩展（治理并存：新增，不改既有 capability_pool 逻辑） ──────────────
+//
+// 说明（skill-reflux 任务 3）：二期云反哺以新 `skill` 表族（skill / user_skill /
+// skill_platform_variant / skill_contributor）承载公共技能与跨用户继承。既有
+// capability_pool 表族与上面所有函数**原样保留、继续生效**（治理并存）。
+// 这里仅**新增** `inheritSkills`（读写 `user_skill`，对应既有 `inheritCapabilities`
+// 在新表上的扩展）与 `recordSkillUsage`（更新 `skill` 质量字段 + `user_skill.last_used_at`，
+// 对应既有 `recordCapabilityUsage` 在新表上的扩展），二者互不影响。
+//
+// 注意：`skill` / `user_skill` 表由 skill-reflux 增量迁移 006_skill_reflux.sql 建立，
+// 本文件只写数据访问、不重复建表。
+//
+// _Requirements: skill-reflux 11.3, 12.1_
+
+/** `skill` 表行（与 src/reflux/types.ts 的 Skill 对齐，此处仅取继承/回写所需列）。 */
+export interface SkillRowLite {
+  id: string;
+  kind: string;
+  title: string;
+  description: string;
+  category: string;
+  tags: string[];
+  platform: string[];
+  os_scope: string;
+  status: string;
+  is_starter: boolean;
+  user_neutral: boolean;
+  use_count: number;
+  success_count: number;
+  success_rate: number;
+  cross_user_breadth: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 用户继承公共技能（对应既有 `inheritCapabilities` 在 `skill`/`user_skill` 上的扩展）。
+ *
+ * 逻辑：取 active 公共技能（可按 skillIds 过滤），幂等写入 `user_skill`
+ * （ON CONFLICT DO NOTHING，支持 `user_skill.enabled` 由用户关闭），返回被继承技能列表。
+ * 与既有 `inheritCapabilities`（capability_pool / capability_inheritances）并存、互不影响。
+ */
+export async function inheritSkills(
+  userId: string,
+  skillIds?: string[],
+): Promise<SkillRowLite[]> {
+  const params: unknown[] = [];
+  let where = `WHERE status = 'active'`;
+  if (skillIds && skillIds.length > 0) {
+    params.push(skillIds);
+    where += ` AND id = ANY($${params.length})`;
+  }
+  const active = await query<SkillRowLite>(
+    `SELECT id, kind, title, description, category, tags, platform, os_scope,
+            status, is_starter, user_neutral, use_count, success_count, success_rate,
+            cross_user_breadth, created_at, updated_at
+       FROM skill ${where}`,
+    params,
+  );
+
+  for (const s of active.rows) {
+    // 幂等：同一 (user_id, skill_id) 只继承一次；enabled 默认 TRUE，可由用户关闭。
+    await query(
+      `INSERT INTO user_skill (user_id, skill_id)
+       VALUES ($1, $2) ON CONFLICT (user_id, skill_id) DO NOTHING`,
+      [userId, s.id],
+    );
+  }
+  return active.rows;
+}
+
+/**
+ * 记录公共技能复用（成功/失败），更新质量分 + 继承方最近使用时间
+ * （对应既有 `recordCapabilityUsage` 在 `skill`/`user_skill` 上的扩展）。
+ *
+ * 更新（Req 12.1）：
+ *  - `skill`：use_count(+1) / success_count(+成功?1:0) / success_rate / provenance（同一事实两视图）；
+ *  - `user_skill.last_used_at`：该继承方最近使用时间（静默检测 Req 12.4 依据）。
+ *
+ * 与既有 `recordCapabilityUsage`（capability_pool）并存、互不影响。
+ */
+export async function recordSkillUsage(
+  userId: string,
+  skillId: string,
+  success: boolean,
+): Promise<void> {
+  const inc = success ? 1 : 0;
+  await transaction(async (client) => {
+    await client.query(
+      `UPDATE skill SET
+         use_count = use_count + 1,
+         success_count = success_count + $2,
+         success_rate = (success_count + $2)::real / (use_count + 1)::real,
+         provenance = jsonb_set(
+           jsonb_set(
+             COALESCE(provenance, '{}'::jsonb),
+             '{totalCount}', to_jsonb((COALESCE((provenance->>'totalCount')::int, 0) + 1))
+           ),
+           '{verifiedCount}', to_jsonb((COALESCE((provenance->>'verifiedCount')::int, 0) + $2))
+         ),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [skillId, inc],
+    );
+    // 继承方最近使用时间（仅当该用户确有继承关系时更新）。
+    await client.query(
+      `UPDATE user_skill SET last_used_at = NOW() WHERE user_id = $1 AND skill_id = $2`,
+      [userId, skillId],
+    );
+  });
+}

@@ -10,7 +10,7 @@
  */
 
 import { Router, type Request, type Response } from "express";
-import { requireAuth } from "../auth/middleware.js";
+import { requireAuth, requireAdmin } from "../auth/middleware.js";
 import {
   getApprovedCapabilities,
   getPoolStats,
@@ -53,9 +53,9 @@ capabilityRouter.get("/stats", async (_req: Request, res: Response) => {
 
 /**
  * 待审核列表（管理员）。
- * TODO: 加管理员权限检查（当前仅用 requireAuth）。
+ * 经 `requireAdmin` 管理员鉴权（Req 10.10）：非管理员的已登录用户调用 → 403，且不读取队列。
  */
-capabilityRouter.get("/pending", async (_req: Request, res: Response) => {
+capabilityRouter.get("/pending", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const pending = await getPendingCapabilities();
     res.json({ pending });
@@ -67,9 +67,10 @@ capabilityRouter.get("/pending", async (_req: Request, res: Response) => {
 
 /**
  * 审核能力。
+ * 经 `requireAdmin` 管理员鉴权（Req 10.10）：非管理员的已登录用户调用 → 403，且不执行审核动作。
  * Body: { capabilityId: string, decision: "approved" | "rejected", note?: string }
  */
-capabilityRouter.post("/review", async (req: Request, res: Response) => {
+capabilityRouter.post("/review", requireAdmin, async (req: Request, res: Response) => {
   const { capabilityId, decision, note } = req.body as {
     capabilityId?: string;
     decision?: string;

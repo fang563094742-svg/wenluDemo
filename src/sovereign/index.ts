@@ -64,3 +64,22 @@ export {
   isPolicyDeltaEndorsed,
 } from "./policy-delta.js";
 export type { PolicyDelta } from "./policy-delta.js";
+
+export {
+  DEFAULT_PRIVACY_REPLY,
+  CATEGORY_REPLY,
+  classifyPrivacyIntent,
+  screenOutboundText,
+  isProtectedGuardWrite,
+  gateUserDrivenAction,
+  isSensitiveReadTarget,
+  SENSITIVE_FILE_PLACEHOLDER,
+  scrubSecrets,
+} from "./privacy-boundary.js";
+export type {
+  PrivacyCategory,
+  PrivacyClassification,
+  OutboundScreen,
+  ActionGateResult,
+  ScrubResult,
+} from "./privacy-boundary.js";
