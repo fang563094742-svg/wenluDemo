@@ -70,6 +70,7 @@ try {
 import { validateApiKey, readBackupEndpoint, readLocalEndpoint } from "./config/config.js";
 import { appendDebugLog } from "./debug/logFile.js";
 import { Gpt54Provider } from "./llm/gpt54Provider.js";
+import { BrokerLlmProvider } from "./llm/brokerLlmProvider.js";
 import { ResilientLlm, LlmExhaustedError } from "./llm/resilientLlm.js";
 import { LlmPool, type LlmPoolMember } from "./llm/llmPool.js";
 import { buildProxyFetch } from "./llm/proxyFetch.js";
@@ -7544,6 +7545,15 @@ function eraseConsumedSecrets(): void {
 
 export async function main(): Promise<void> {
   const env = process.env;
+  // ═══ P2a · LLM 经纪模式（默认关闭，配了 WENLU_BROKER_URL + TOKEN 才启用）═══
+  // 启用后：本进程不读/不持 LLM 密钥，complete/completeWithTools 经本机经纪转发。
+  const brokerUrl = (env.WENLU_BROKER_URL ?? "").trim();
+  const brokerToken = (env.WENLU_BROKER_TOKEN ?? "").trim();
+  const useLlmBroker = brokerUrl.length > 0 && brokerToken.length > 0;
+  if (useLlmBroker) {
+    llm = new BrokerLlmProvider(brokerUrl, brokerToken);
+    console.log("[问路] LLM 经纪模式：经 Broker 调用，大脑进程不持 LLM 密钥");
+  } else {
   const keyCheck = validateApiKey(env);
   if (keyCheck.error) { console.error(`[问路] ${keyCheck.error}`); process.exitCode = 1; return; }
   try {
@@ -7611,6 +7621,7 @@ export async function main(): Promise<void> {
         });
   }
   catch (e) { console.error(`[问路] ${e instanceof Error ? e.message : e}`); process.exitCode = 1; return; }
+  }
 
   // ─── 数据库启动引导（multiuser-pg-store）：建库 → 迁移 → 连通自检 ───
   // 连不上 PG 显式失败并退出，严禁以「无持久化 / 文件回退」方式降级运行（Req 11.3）。
