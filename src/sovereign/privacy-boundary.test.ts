@@ -150,6 +150,7 @@ describe("isSensitiveReadTarget · 敏感文件拒读", () => {
     for (const p of [
       "D:\\proj\\.env",
       "/app/.env.production",
+      ".env.broker",
       "~/.ssh/id_rsa",
       "config/secrets.json",
       "data/payment-config.json",

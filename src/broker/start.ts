@@ -14,20 +14,25 @@ import { fileURLToPath } from "node:url";
 
 // ─── 加载 .env（同步，确保后续读取到密钥）───
 const __dirname_b = dirname(fileURLToPath(import.meta.url));
-try {
-  const envPath = resolvePath(__dirname_b, "../../.env");
-  const content = readFileSync(envPath, "utf-8");
-  for (const line of content.split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 0) continue;
-    const k = t.slice(0, i).trim();
-    let v = t.slice(i + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    if (!process.env[k]) process.env[k] = v;
-  }
-} catch { /* 无 .env 则依赖系统环境 */ }
+function loadEnvFile(relPath: string): void {
+  try {
+    const p = resolvePath(__dirname_b, relPath);
+    const content = readFileSync(p, "utf-8");
+    for (const line of content.split("\n")) {
+      const t = line.trim();
+      if (!t || t.startsWith("#")) continue;
+      const i = t.indexOf("=");
+      if (i < 0) continue;
+      const k = t.slice(0, i).trim();
+      let v = t.slice(i + 1).trim();
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      if (!process.env[k]) process.env[k] = v;
+    }
+  } catch { /* 文件不存在则跳过 */ }
+}
+// .env：经纪鉴权(WENLU_BROKER_*)等通用配置；.env.broker：仅经纪持有的 LLM 密钥/端点。
+loadEnvFile("../../.env");
+loadEnvFile("../../.env.broker");
 
 const { startLlmBroker } = await import("./llmBroker.js");
 
