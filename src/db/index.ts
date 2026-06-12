@@ -16,3 +16,6 @@ export * from "./brainRepo.js";
 export * from "./memoryRepo.js";
 export * from "./sensorRepo.js";
 export * from "./conversationRepo.js";
+export * from "./authSessionRepo.js";
+export * from "./billingRepo.js";
+export * from "./inviteRepo.js";

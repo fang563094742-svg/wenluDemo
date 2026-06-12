@@ -10,6 +10,7 @@
  */
 
 import pg from "pg";
+import { existsSync } from "node:fs";
 const { Pool } = pg;
 
 // ---------------------------------------------------------------------------

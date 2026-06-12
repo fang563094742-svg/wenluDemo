@@ -41,6 +41,9 @@ import { homedir } from "node:os";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createApp } from "./api/app.js";
+import { authenticateHeaders } from "./auth/httpAuth.js";
+import { consumeBusinessMessageAccess } from "./membership/accessService.js";
+import { initSchema } from "./db/pool.js";
 
 // ─── 自动加载 .env（无第三方依赖） ───
 const __filename_env = fileURLToPath(import.meta.url);
@@ -7039,11 +7042,36 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const method = (req.method ?? "GET").toUpperCase();
   const url = (req.url ?? "/").split("?")[0];
 
-  // 连接器状态（平台侧视角）：前端可据此与本地 32101/status 双重确认。
+  // 连接器状态（平台侧视角）：前端可据此与本地 32101/status 双重确认。免鉴权（仅暴露在线状态）。
   if (method === "GET" && url === "/connector/status") {
     sendJson(res, 200, { online: connectorBridge.isOnline(), connectors: connectorBridge.list() });
     return;
   }
+
+  const isProtectedRoute =
+    url === "/events"
+    || url === "/attention"
+    || url === "/state"
+    || url === "/history"
+    || url === "/tasks"
+    || url === "/ui-ready"
+    || url === "/say"
+    || url === "/memory/query"
+    || url.startsWith("/task/")
+    || url.startsWith("/channels")
+    || url.startsWith("/decisions")
+    || url.startsWith("/debug/memory");
+  const authPayload = isProtectedRoute ? authenticateHeaders(req.headers) : null;
+
+  if (isProtectedRoute && !authPayload) {
+    sendJson(res, 401, {
+      ok: false,
+      code: "UNAUTHORIZED",
+      error: "请先登录后再使用业务功能。",
+    });
+    return;
+  }
+
   if (method === "GET" && url === "/events") { sseHub.addClient(res); return; }
   if (method === "GET" && url === "/health") {
     // 第三层：极轻量健康端点，不依赖任何重逻辑——看门狗据此判断进程是否僵死
@@ -7213,8 +7241,22 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     appendDebugLog("wenlu_route.log", `[${new Date().toISOString()}] body=${JSON.stringify(body)}\n`);
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) { appendDebugLog("wenlu_route.log", "empty text, 400\n"); sendJson(res, 400, { ok: false }); return; }
+    const membershipAccess = await consumeBusinessMessageAccess(authPayload!.userId);
+    if (!membershipAccess.allowed) {
+      appendDebugLog(
+        "wenlu_route.log",
+        `[${new Date().toISOString()}] blocked by membership access: ${membershipAccess.reasonCode}\n`,
+      );
+      sendJson(res, 403, {
+        ok: false,
+        code: membershipAccess.reasonCode,
+        error: membershipAccess.reason || "当前账号暂不可继续发送业务指令，请先开通会员。",
+        membershipAccess,
+      });
+      return;
+    }
     const sayChannelId = typeof body?.channelId === "string" && body.channelId.trim() ? body.channelId.trim() : DEFAULT_USER_CHANNEL_ID;
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, membershipAccess });
     appendDebugLog("wenlu_route.log", `calling handleUserMessage: "${text}"\n`);
     void handleUserMessage(text, sayChannelId);
     return;
@@ -7571,6 +7613,7 @@ export async function main(): Promise<void> {
 
   // ─── 数据库启动引导（multiuser-pg-store）：建库 → 迁移 → 连通自检 ───
   // 连不上 PG 显式失败并退出，严禁以「无持久化 / 文件回退」方式降级运行（Req 11.3）。
+  // 注：bootstrapDb 已含建库+迁移（覆盖 auth/会员/支付与反哺各表），取代旧 initSchema。
   try {
     await bootstrapDb();
   } catch (e) {
@@ -7662,12 +7705,12 @@ export async function main(): Promise<void> {
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void { const b = Buffer.from(JSON.stringify(data), "utf8"); res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }); res.end(b); }
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> { return new Promise((r) => { const c: Buffer[] = []; let s = 0; req.on("data", (d: Buffer) => { s += d.length; if (s > 1e6) { req.destroy(); r(null); return; } c.push(d); }); req.on("end", () => { if (!s) { r(null); return; } try { r(JSON.parse(Buffer.concat(c).toString("utf8"))); } catch { r(null); } }); req.on("error", () => r(null)); }); }
-// 前端目录：优先用工程内 public/（合体布局）；若不存在则回退到并列的 ../wenluDemoWeb（前后端分离布局）。
+// 前端目录：优先用并列的 ../wenluDemoWeb（用户要求的前端风格与结构）；若不存在则回退到工程内 public/。
 const PUBLIC_DIR = (() => {
-  const local = resolvePath(process.cwd(), "public");
-  if (existsSync(local)) return local;
   const sibling = resolvePath(process.cwd(), "..", "wenluDemoWeb");
   if (existsSync(sibling)) return sibling;
+  const local = resolvePath(process.cwd(), "public");
+  if (existsSync(local)) return local;
   return local;
 })();
 const CT: Record<string, string> = { ".html": "text/html;charset=utf-8", ".js": "text/javascript;charset=utf-8", ".css": "text/css;charset=utf-8" };

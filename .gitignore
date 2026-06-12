@@ -31,8 +31,8 @@ data/capability-line/learning-line.json
 data/output/*
 !data/output/*.ts
 
-# frontend lives in its own repo (wenluDemoWeb)
-public/
+# frontend static pages are now part of this repo
+# public/
 
 # local developer config
 .claude/settings.local.json

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜充值中心</title>
+  <link rel="stylesheet" href="/auth.css?v=20260612-2" />
+</head>
+<body data-page="payment">
+  <main class="page-shell page">
+    <section class="shell">
+      <section class="hero hero-wide">
+        <div class="hero-head">
+          <div>
+            <div class="brand-block">
+              <div class="brand-mark">WL</div>
+              <div>
+                <p class="eyebrow">PAYMENT CENTER</p>
+                <h1 class="brand-title">充值中心</h1>
+              </div>
+            </div>
+            <p class="lead" style="margin-top:14px;">选择会员套餐并创建订单，右侧二维码可扫码支付，订单会自动刷新核单。</p>
+          </div>
+          <div class="toolbar">
+            <a class="portal-chip" href="/">主工作台</a>
+            <a class="portal-chip" href="/account.html">个人中心</a>
+            <button id="refresh-membership-btn" class="btn-secondary" type="button">刷新会员</button>
+            <button id="refresh-orders-btn" class="btn-secondary" type="button">刷新订单</button>
+            <button id="toggle-orders-poll-btn" class="btn-secondary" type="button">切换轮询</button>
+            <button id="logout-btn" class="btn-danger" type="button">退出</button>
+          </div>
+        </div>
+        <div class="pills">
+          <span id="payment-user-badge" class="pill">账号加载中</span>
+          <span id="payment-member-badge" class="pill member-pill">会员状态加载中</span>
+          <span id="orders-poll-badge" class="pill">轮询待命</span>
+        </div>
+      </section>
+
+      <div id="gate-loading" class="card"><div class="status info">正在校验登录状态…</div></div>
+
+      <section id="payment-shell" class="page-shell hidden">
+        <div id="payment-status" class="status info"></div>
+        <section class="grid-2">
+          <div class="card">
+            <p class="eyebrow">SUMMARY</p>
+            <h2>账号与会员概览</h2>
+            <div class="kv">
+              <div class="kv-item"><span>当前会员</span><strong id="summary-membership">-</strong></div>
+              <div class="kv-item"><span>到期时间</span><strong id="summary-expire">-</strong></div>
+              <div class="kv-item"><span>免费限制</span><strong id="summary-limit">-</strong></div>
+              <div class="kv-item"><span>限制说明</span><strong id="summary-limit-detail">-</strong></div>
+            </div>
+          </div>
+          <div class="card">
+            <p class="eyebrow">QR</p>
+            <h2 id="qr-title">当前订单：未创建</h2>
+            <p id="qr-caption" class="lead">创建订单后会在这里显示可扫码内容。</p>
+            <div style="margin-top:14px; display:grid; gap:12px; justify-items:start;">
+              <div class="pay-modal-empty" id="qr-empty">二维码暂未准备好</div>
+              <img id="qr-image" class="pay-qr hidden" alt="支付二维码" />
+              <div id="qr-warning" class="surface-note hidden"></div>
+              <div class="kv" style="width:100%;">
+                <div class="kv-item"><span>订单号</span><strong id="qr-order-no">-</strong></div>
+                <div class="kv-item"><span>金额</span><strong id="qr-amount">-</strong></div>
+                <div class="kv-item"><span>联系方式</span><strong id="qr-client-reference">-</strong></div>
+                <div class="kv-item"><span>备注</span><strong id="qr-remark">-</strong></div>
+              </div>
+              <div class="qr-actions">
+                <button id="copy-order-btn" class="btn-primary" type="button">复制订单号</button>
+                <button id="copy-link-btn" class="btn-secondary" type="button">复制支付内容</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid-2">
+          <div class="card">
+            <p class="eyebrow">PLANS</p>
+            <h2>会员套餐</h2>
+            <div id="plan-list" class="plan-list"></div>
+          </div>
+          <div class="card">
+            <p class="eyebrow">ORDERS</p>
+            <h2>订单列表</h2>
+            <div id="order-list" class="order-list"></div>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <div id="payment-qr-modal" class="pay-modal hidden" aria-hidden="true">
+    <div id="payment-qr-modal-backdrop" class="pay-modal-backdrop"></div>
+    <div class="pay-modal-card">
+      <div class="pay-modal-head">
+        <div>
+          <div class="eyebrow">PAYMENT PREVIEW</div>
+          <div id="payment-modal-title" class="pay-modal-title">支付宝扫码支付</div>
+          <div id="payment-modal-caption" class="pay-modal-caption">订单已创建，请使用支付宝扫码完成支付。</div>
+        </div>
+        <button id="payment-modal-close" class="btn-secondary" type="button">关闭</button>
+      </div>
+              <div class="pay-modal-grid">
+        <div>
+          <img id="payment-modal-image" class="pay-qr hidden" alt="支付二维码" />
+          <div id="payment-modal-empty" class="pay-modal-empty">二维码生成中…</div>
+        </div>
+        <div class="kv">
+          <div class="kv-item"><span>订单号</span><strong id="payment-modal-order-no">-</strong></div>
+          <div class="kv-item"><span>金额</span><strong id="payment-modal-amount">-</strong></div>
+          <div class="kv-item"><span>备注</span><strong id="payment-modal-caption-copy">请在支付宝扫码完成支付</strong></div>
+        </div>
+      </div>
+      <div class="qr-actions">
+        <button id="payment-modal-copy-order" class="btn-primary" type="button">复制订单号</button>
+        <button id="payment-modal-copy-pay" class="btn-secondary" type="button">复制支付内容</button>
+        <button id="payment-modal-refresh" class="btn-ghost" type="button">刷新二维码</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/qrcode-lite.js"></script>
+  <script src="/payment.js"></script>
+  <script src="/auth.js?v=20260612-2"></script>
+</body>
+</html>
