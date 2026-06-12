@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜注册</title>
+  <link rel="stylesheet" href="/auth.css?v=20260612-2" />
+</head>
+<body data-page="register">
+  <main class="page">
+    <section class="shell">
+      <section class="hero hero-wide">
+        <div class="hero-head">
+          <div>
+            <div class="brand-block">
+              <div class="brand-mark">WL</div>
+              <div>
+                <p class="eyebrow">WENLU PORTAL</p>
+                <h1 class="brand-title">创建问路账号</h1>
+              </div>
+            </div>
+            <p class="lead" style="margin-top:14px;">注册完成后自动登录，同一账户可进入主工作台、个人中心、充值与邀请管理。</p>
+          </div>
+          <div class="portal-chip-row">
+            <a class="portal-chip" href="/">回到主工作台</a>
+            <a class="portal-chip" href="/login.html">去登录</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <aside class="card">
+          <p class="eyebrow">CREATE ACCOUNT</p>
+          <h2>统一账号注册</h2>
+          <div class="portal-list">
+            <div class="portal-item"><strong>自动登录</strong><div class="surface-note">注册成功后直接进入系统，不必重复登录。</div></div>
+            <div class="portal-item"><strong>邀请码绑定</strong><div class="surface-note">可选填写邀请码，绑定邀请关系与奖励。</div></div>
+            <div class="portal-item"><strong>会员与支付</strong><div class="surface-note">账号创建后即可在同一体系内开通会员与充值。</div></div>
+          </div>
+        </aside>
+
+        <section class="card auth-card">
+          <div id="gate-loading" class="status info">正在准备注册页面…</div>
+          <div id="auth-form-shell">
+            <div class="card-actions" style="justify-content:space-between;margin-bottom:14px;">
+              <div>
+                <p class="eyebrow">CREATE ACCOUNT</p>
+                <h2 id="auth-title">用户名密码注册</h2>
+                <p id="auth-subtitle" class="lead" style="max-width:40ch;">请设置用户名与密码，完成安全验证后创建账号。</p>
+              </div>
+            </div>
+
+            <form id="auth-form" class="form">
+              <div class="field">
+                <label class="label" for="username">用户名</label>
+                <input id="username" type="text" maxlength="32" placeholder="请设置用户名" autocomplete="username" />
+              </div>
+              <div class="field">
+                <label class="label" for="password">密码</label>
+                <input id="password" type="password" minlength="8" maxlength="72" placeholder="请设置密码" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label class="label" for="confirm-password">确认密码</label>
+                <input id="confirm-password" type="password" minlength="8" maxlength="72" placeholder="再次输入密码" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label class="label" for="invite-code">邀请码（选填）</label>
+                <input id="invite-code" type="text" maxlength="20" placeholder="如有可填写" autocomplete="off" />
+              </div>
+              <div class="field captcha-field">
+                <div class="captcha-label-row">
+                  <label class="label" for="captcha-container">安全验证</label>
+                  <span class="captcha-tip">点击注册后弹出</span>
+                  <button id="captcha-close-btn" class="captcha-close-btn" type="button">关闭</button>
+                </div>
+                <div id="captcha-container" class="captcha-shell is-loading"></div>
+                <div id="captcha-status" class="status info">点击注册后再完成验证。</div>
+              </div>
+              <div id="form-status" class="status info"></div>
+              <div class="card-actions" style="justify-content:center;width:100%;">
+                <button id="submit-btn" class="btn-primary" type="submit">注册并登录</button>
+                <a class="btn-secondary" href="/login.html" style="display:inline-flex;align-items:center;justify-content:center;">去登录</a>
+              </div>
+            </form>
+
+            <div class="surface-note" style="margin-top:14px;">用户名与密码将作为统一账户凭证，后续会员、充值、邀请都沿用这一账号。</div>
+            <div class="nav-tip">
+              <span id="switch-text">已经有账号了？</span>
+              <a id="switch-link" href="/login.html">去账号登录</a>
+            </div>
+
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script src="/auth.js?v=20260612-2"></script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜登录</title>
+  <link rel="stylesheet" href="/auth.css?v=20260612-2" />
+</head>
+<body data-page="login">
+  <main class="page">
+    <section class="shell">
+      <section class="hero hero-wide">
+        <div class="hero-head">
+          <div>
+            <div class="brand-block">
+              <div class="brand-mark">WL</div>
+              <div>
+                <p class="eyebrow">WENLU PORTAL</p>
+                <h1 class="brand-title">登录问路账号</h1>
+              </div>
+            </div>
+            <p class="lead" style="margin-top:14px;">使用注册时设置的用户名和密码登录，登录后可进入主工作台、个人中心与充值中心。</p>
+          </div>
+          <div class="portal-chip-row">
+            <a class="portal-chip" href="/">回到主工作台</a>
+            <a class="portal-chip" href="/register.html">去注册</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <aside class="card">
+          <p class="eyebrow">ACCESS</p>
+          <h2>统一账号登录</h2>
+          <div class="portal-list">
+            <div class="portal-item"><strong>业务入口</strong><div class="surface-note">登录后进入主工作台继续聊天与任务流。</div></div>
+            <div class="portal-item"><strong>会员中心</strong><div class="surface-note">查看会员状态、套餐与使用额度。</div></div>
+            <div class="portal-item"><strong>充值与邀请</strong><div class="surface-note">统一从同一账户体系管理订单与邀请码。</div></div>
+          </div>
+        </aside>
+
+        <section class="card auth-card">
+          <div id="gate-loading" class="status info">正在准备登录页面…</div>
+          <div id="auth-form-shell">
+            <div class="card-actions" style="justify-content:space-between;margin-bottom:14px;">
+              <div>
+                <p class="eyebrow">ACCOUNT ACCESS</p>
+                <h2 id="auth-title">用户名密码登录</h2>
+                <p id="auth-subtitle" class="lead" style="max-width:40ch;">请输入用户名与密码，完成安全验证后进入系统。</p>
+              </div>
+            </div>
+
+            <form id="auth-form" class="form">
+              <div class="field">
+                <label class="label" for="identifier">用户名</label>
+                <input id="identifier" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username" />
+              </div>
+              <div class="field">
+                <label class="label" for="password">密码</label>
+                <input id="password" type="password" minlength="8" maxlength="72" placeholder="请输入 8-72 位密码" autocomplete="current-password" />
+              </div>
+              <div class="field captcha-field">
+                <div class="captcha-label-row">
+                  <label class="label" for="captcha-container">安全验证</label>
+                  <span class="captcha-tip">点击登录后弹出</span>
+                  <button id="captcha-close-btn" class="captcha-close-btn" type="button">关闭</button>
+                </div>
+                <div id="captcha-container" class="captcha-shell is-loading"></div>
+                <div id="captcha-status" class="status info">点击登录后再完成验证。</div>
+              </div>
+              <div id="form-status" class="status info"></div>
+              <div class="card-actions" style="justify-content:center;width:100%;">
+                <button id="submit-btn" class="btn-primary" type="submit">登录</button>
+                <a class="btn-secondary" href="/register.html" style="display:inline-flex;align-items:center;justify-content:center;">去注册</a>
+              </div>
+            </form>
+
+            <div class="surface-note" style="margin-top:14px;">登录成功后会自动保存会话，并可刷新到个人中心或充值页。</div>
+            <div class="nav-tip">
+              <span id="switch-text">还没有账号？</span>
+              <a id="switch-link" href="/register.html">去注册新账号</a>
+            </div>
+
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script src="/auth.js?v=20260612-2"></script>
+</body>
+</html>

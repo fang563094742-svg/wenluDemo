@@ -1,28 +1,61 @@
 #!/usr/bin/env tsx
-import { execSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
+import {
+  createVerificationEngine,
+  fileAssertion,
+  httpAssertion,
+  shellAssertion,
+  stateAssertion,
+  type Assertion,
+  type AssertionContext,
+  type AssertionSeverity,
+  type VerificationResult,
+} from "../../src/verification/index.js";
 
 interface VerifySpec {
-  kind: "command-exit-0" | "file-exists" | "file-contains";
-  path?: string;
-  command?: string;
-  needle?: string;
-  description: string;
+  id: string;
+  goal: string;
+  checks: LegacyCheck[];
+  context?: {
+    stateSnapshot?: unknown;
+    workingDir?: string;
+  };
 }
 
-interface VerifyResult extends VerifySpec {
-  passed: boolean;
-  observed: string;
-}
+type LegacyCheck =
+  | {
+      kind: "command-exit-0";
+      description: string;
+      command: string;
+      severity?: AssertionSeverity;
+      timeoutMs?: number;
+    }
+  | {
+      kind: "file-exists";
+      description: string;
+      path: string;
+      severity?: AssertionSeverity;
+    }
+  | {
+      kind: "file-contains";
+      description: string;
+      path: string;
+      needle: string;
+      severity?: AssertionSeverity;
+    };
 
-interface EvidenceChain {
+interface EvidenceChainArtifact {
   id: string;
   goal: string;
   createdAt: string;
   specPath: string;
-  results: VerifyResult[];
-  verdict: "passed" | "failed";
+  overallVerdict: VerificationResult["overallVerdict"];
+  hardGatesPassed: boolean;
+  softScore: number;
+  summary: string;
+  verification: VerificationResult;
+  failedChecks: string[];
 }
 
 const ROOT = resolve(".");
@@ -37,52 +70,70 @@ void main(specPath);
 
 async function main(inputPath: string) {
   const raw = await readFile(inputPath, "utf8");
-  const spec = JSON.parse(raw) as { id: string; goal: string; checks: VerifySpec[] };
-  const results = spec.checks.map(runCheck);
-  const verdict = results.every((r) => r.passed) ? "passed" : "failed";
+  const spec = JSON.parse(raw) as VerifySpec;
+  const engine = createVerificationEngine();
+  const workingDir = spec.context?.workingDir ? resolve(ROOT, spec.context.workingDir) : ROOT;
+  const context: AssertionContext = {
+    taskId: spec.id,
+    stateSnapshot: spec.context?.stateSnapshot ?? {},
+    workingDir,
+  };
+
+  const result = await engine.verify(spec.id, spec.checks.map(toAssertion), context);
   const outDir = resolve(ROOT, "artifacts", "verification_chains", spec.id);
   await mkdir(outDir, { recursive: true });
   const ts = new Date().toISOString().replace(/:/g, "-");
   const outPath = resolve(outDir, `${basename(inputPath, ".json")}_${ts}.json`);
-  const evidence: EvidenceChain = {
+  const artifact: EvidenceChainArtifact = {
     id: spec.id,
     goal: spec.goal,
     createdAt: new Date().toISOString(),
     specPath: inputPath,
-    results,
-    verdict,
+    overallVerdict: result.overallVerdict,
+    hardGatesPassed: result.hardGatesPassed,
+    softScore: result.softScore,
+    summary: result.summary,
+    verification: result,
+    failedChecks: result.assertions.filter((item) => !item.passed).map((item) => item.description),
   };
-  await writeFile(outPath, JSON.stringify(evidence, null, 2), "utf8");
-  console.log(JSON.stringify({ verdict, evidencePath: outPath, failedChecks: results.filter((r) => !r.passed).map((r) => r.description) }, null, 2));
-  process.exit(verdict === "passed" ? 0 : 1);
+  await writeFile(outPath, JSON.stringify(artifact, null, 2), "utf8");
+  console.log(JSON.stringify({
+    verdict: result.overallVerdict,
+    evidencePath: outPath,
+    failedChecks: artifact.failedChecks,
+    hardGatesPassed: result.hardGatesPassed,
+    softScore: result.softScore,
+  }, null, 2));
+  process.exit(result.overallVerdict === "failed" ? 1 : 0);
 }
 
-function runCheck(check: VerifySpec): VerifyResult {
-  try {
-    if (check.kind === "command-exit-0") {
-      if (!check.command) throw new Error("missing command");
-      execSync(check.command, { cwd: ROOT, stdio: "pipe", encoding: "utf8", shell: "/bin/bash" });
-      return { ...check, passed: true, observed: "exit=0" };
-    }
-    if (check.kind === "file-exists") {
-      if (!check.path) throw new Error("missing path");
-      execSync(`test -f ${shellQuote(resolve(ROOT, check.path))}`, { stdio: "pipe", encoding: "utf8", shell: "/bin/bash" });
-      return { ...check, passed: true, observed: resolve(ROOT, check.path) };
-    }
-    if (check.kind === "file-contains") {
-      if (!check.path || !check.needle) throw new Error("missing path/needle");
-      const filePath = resolve(ROOT, check.path);
-      const content = execSync(`cat ${shellQuote(filePath)}`, { stdio: "pipe", encoding: "utf8", shell: "/bin/bash" });
-      const passed = content.includes(check.needle);
-      return { ...check, passed, observed: passed ? `found:${check.needle}` : `missing:${check.needle}` };
-    }
-    return { ...check, passed: false, observed: "unknown check kind" };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ...check, passed: false, observed: message };
+function toAssertion(check: LegacyCheck): Assertion {
+  switch (check.kind) {
+    case "command-exit-0":
+      return shellAssertion({
+        description: check.description,
+        cmd: check.command,
+        severity: check.severity,
+        timeoutMs: check.timeoutMs,
+      });
+    case "file-exists":
+      return fileAssertion({
+        description: check.description,
+        path: check.path,
+        severity: check.severity,
+      });
+    case "file-contains":
+      return fileAssertion({
+        description: check.description,
+        path: check.path,
+        contains: check.needle,
+        severity: check.severity,
+      });
+    default:
+      return unreachable(check);
   }
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+function unreachable(value: never): never {
+  throw new Error(`unsupported check: ${JSON.stringify(value)}`);
 }

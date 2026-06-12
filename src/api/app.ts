@@ -10,6 +10,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { authRouter } from "../auth/routes.js";
 import { capabilityRouter } from "../capability-pool/routes.js";
+import { paymentRouter } from "./paymentRoutes.js";
+import { loadLdxpConfig, LdxpMerchantClient } from "../pay/ldxpClient.js";
+import { startAutoReconcileLoop } from "../pay/reconcileService.js";
 
 const paymentConfigPath = resolve(process.cwd(), "data/payment-config.json");
 
@@ -20,16 +23,25 @@ async function loadPaymentConfig() {
 
 export function createApp(): express.Application {
   const app = express();
+  startAutoReconcileLoop();
+  const allowCredentials = (process.env.CORS_ALLOW_CREDENTIALS ?? "true") !== "false";
+  const configuredOrigin = process.env.CORS_ORIGIN?.trim();
 
   // ── 全局中间件 ──────────────────────────────────────────────────────────
   app.use(express.json({ limit: "1mb" }));
 
   // CORS（开发期间全开，生产应按域名限制）
-  app.use((_req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
+  app.use((req, res, next) => {
+    const requestOrigin = req.headers.origin;
+    const allowOrigin = configuredOrigin || requestOrigin || "*";
+    res.header("Access-Control-Allow-Origin", allowOrigin);
+    res.header("Vary", "Origin");
+    if (allowCredentials) {
+      res.header("Access-Control-Allow-Credentials", "true");
+    }
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    if (_req.method === "OPTIONS") {
+    if (req.method === "OPTIONS") {
       res.sendStatus(204);
       return;
     }
@@ -39,20 +51,29 @@ export function createApp(): express.Application {
   // ── 路由挂载 ────────────────────────────────────────────────────────────
   app.use("/api/auth", authRouter);
   app.use("/api/capabilities", capabilityRouter);
+  app.use("/api/payments", paymentRouter);
 
   app.get("/api/payment-options", async (_req, res) => {
     try {
       const config = await loadPaymentConfig();
+      const ldxpClient = new LdxpMerchantClient(loadLdxpConfig());
+      const checkout = ldxpClient.getCheckoutInfo();
       res.json({
         status: "ok",
         options: {
           direct: {
-            preferredLabel: config.direct?.preferredLabel,
-            remarkTemplate: config.direct?.remarkTemplate,
-            methods: (config.direct?.methods ?? []).map((method: { label?: string; note?: string }) => ({
-              label: method.label,
-              note: method.note,
-            })),
+            preferredLabel: config.direct?.preferredLabel || "链动小铺支付宝扫码",
+            remarkTemplate: "下单后请在支付页填写联系方式：{clientReference}",
+            methods: [
+              {
+                label: "支付宝扫码支付",
+                note: `打开支付页 ${checkout.shopUrl}，填写联系方式后完成付款。`,
+              },
+              ...(config.direct?.methods ?? []).map((method: { label?: string; note?: string }) => ({
+                label: method.label,
+                note: method.note,
+              })),
+            ],
           },
           crypto: {
             trigger: config.binance?.copywriting?.trigger,
@@ -60,6 +81,15 @@ export function createApp(): express.Application {
             riskReply: config.binance?.copywriting?.riskReply,
           },
           confirmation: config.confirmation,
+          merchant: {
+            provider: "ldxp",
+            shopUrl: checkout.shopUrl,
+            shopTitle: checkout.shopTitle,
+            goodsName: checkout.goodsName,
+            goodsAmountCents: checkout.goodsAmountCents,
+            supportContact: checkout.supportContact,
+            autoReconcileWindowHours: checkout.autoReconcileWindowHours,
+          },
         },
       });
     } catch (error) {

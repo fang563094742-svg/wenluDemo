@@ -11,11 +11,16 @@
  */
 
 import { createApp } from "./app.js";
+import { initSchema } from "../db/pool.js";
+import { startAutoReconcileLoop } from "../pay/reconcileService.js";
 
 const PORT = parseInt(process.env.API_PORT || "3721", 10);
 const HOST = process.env.API_HOST || "0.0.0.0"; // API 服务对外可达
 
+await initSchema();
+
 const app = createApp();
+startAutoReconcileLoop();
 
 app.listen(PORT, HOST, () => {
   console.log(`[问路 API] 服务已启动 http://${HOST}:${PORT}`);
