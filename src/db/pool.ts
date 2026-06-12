@@ -29,13 +29,20 @@ export interface DbConfig {
 }
 
 function loadDbConfig(): DbConfig {
+  // L1 Phase 1.5：DB 密码不再有硬编码默认——缺失即抛错，拒绝以默认凭证连库。
+  const dbPassword = process.env.WENLU_DB_PASSWORD;
+  if (typeof dbPassword !== "string" || dbPassword.trim().length === 0) {
+    throw new Error(
+      "WENLU_DB_PASSWORD 未配置：拒绝以默认密码连接数据库。请在 .env 设置真实数据库密码（绝不入库、绝不用默认值）。",
+    );
+  }
   return {
     host: process.env.WENLU_DB_HOST ?? "127.0.0.1",
     port: parseInt(process.env.WENLU_DB_PORT ?? "5432", 10),
     // 决策 A1：业务库 wenlu，账号 postgres
     database: process.env.WENLU_DB_NAME ?? "wenlu",
-    user: process.env.WENLU_DB_USER ?? "postgres",
-    password: process.env.WENLU_DB_PASSWORD ?? "Wenlu@Pg2026",
+    user: process.env.WENLU_DB_USER ?? "wenlu",
+    password: dbPassword,
     maxConnections: parseInt(process.env.WENLU_DB_MAX_CONN ?? "20", 10),
     idleTimeoutMs: parseInt(process.env.WENLU_DB_IDLE_TIMEOUT ?? "30000", 10),
     connectionTimeoutMs: parseInt(process.env.WENLU_DB_CONN_TIMEOUT ?? "5000", 10),

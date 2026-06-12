@@ -42,6 +42,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createApp } from "./api/app.js";
 import { authenticateHeaders } from "./auth/httpAuth.js";
+import { initJwtSecret } from "./auth/jwt.js";
 import { consumeBusinessMessageAccess } from "./membership/accessService.js";
 import { initSchema } from "./db/pool.js";
 

@@ -94,8 +94,8 @@ describe("reflux 路由身份接入与 admin 保护", () => {
   let baseUrl: string;
   let deps: Required<Pick<RefluxRoutesDeps, "dispatcher" | "onboarding" | "listMine" | "stats" | "getPending">>;
 
-  const adminToken = () => signToken({ userId: ADMIN_ID });
-  const userToken = () => signToken({ userId: NORMAL_ID });
+  const adminToken = () => signToken({ userId: ADMIN_ID, sessionId: "test-admin-session", type: "access" });
+  const userToken = () => signToken({ userId: NORMAL_ID, sessionId: "test-user-session", type: "access" });
 
   beforeEach(async () => {
     process.env.WENLU_ADMIN_USER_IDS = ADMIN_ID;
