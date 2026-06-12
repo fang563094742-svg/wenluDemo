@@ -7665,6 +7665,9 @@ export async function main(): Promise<void> {
   //   - 读 .env 已被 L2 拒；printenv / process.env.X 取不到原文；
   //   - 之后 spawn 的子进程（execute_command）也继承不到这些密钥。
   // 仅擦"凭证"；端点 URL / egress proxy（基础设施信息，存在懒加载读取点）留待 Phase 3。
+  // L1 Phase 1.5：必须先显式捕获 JWT_SECRET 进 jwt 模块闭包（缺失即抛错→拒绝以默认密钥启动），
+  // 再擦 env——否则擦除后首次签发/校验 token 会因读不到 JWT_SECRET 而抛错、鉴权崩溃。
+  initJwtSecret();
   eraseConsumedSecrets();
 
   const server = createServer((req, res) => {
