@@ -161,6 +161,10 @@
   function saveAuth(payload) {
     var normalized = normalizeAuthPayload(payload);
     if (!normalized) return;
+    var previousUser = getUser();
+    var previousUserId = previousUser && previousUser.id ? String(previousUser.id) : '';
+    var nextUser = normalized.user && typeof normalized.user === 'object' ? normalized.user : null;
+    var nextUserId = nextUser && nextUser.id ? String(nextUser.id) : '';
     storageSet(TOKEN_KEY, normalized.accessToken || normalized.token || '');
     if (normalized.refreshToken) storageSet(REFRESH_TOKEN_KEY, normalized.refreshToken);
     if (normalized.user) storageSet(USER_KEY, JSON.stringify(normalized.user));
@@ -168,6 +172,11 @@
     if (normalized.refreshExpiresAt) storageSet(REFRESH_EXPIRES_AT_KEY, normalized.refreshExpiresAt);
     if (normalized.sessionId) storageSet(SESSION_ID_KEY, normalized.sessionId);
     scheduleTokenRefresh();
+    if (previousUserId && nextUserId && previousUserId !== nextUserId && typeof window !== 'undefined') {
+      window.setTimeout(function () {
+        window.location.reload();
+      }, 0);
+    }
   }
 
   function clearAuth() {
@@ -443,7 +452,7 @@
     var cachedUser = getUser();
     try {
       var me = await request('/api/auth/me', { method: 'GET' });
-      var user = Object.assign({}, cachedUser || {}, normalizeUserPayload(me) || {});
+      var user = normalizeUserPayload(me) || cachedUser || null;
       storageSet(USER_KEY, JSON.stringify(user));
       scheduleTokenRefresh();
       return user;
