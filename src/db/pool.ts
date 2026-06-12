@@ -8,6 +8,7 @@
  */
 
 import pg from "pg";
+import { existsSync } from "node:fs";
 const { Pool } = pg;
 
 // ---------------------------------------------------------------------------
@@ -108,17 +109,51 @@ export async function transaction<T>(
 // 初始化 schema（开发环境自动建表）
 // ---------------------------------------------------------------------------
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function resolveDbAssetPath(fileName: string): string {
+  const candidates = [
+    resolve(__dirname, fileName),
+    resolve(process.cwd(), "src", "db", fileName),
+    resolve(process.cwd(), "dist", "src", "db", fileName),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return resolve(__dirname, fileName);
+}
+
 /** 执行 schema.sql 初始化表结构（幂等）。 */
 export async function initSchema(): Promise<void> {
-  const schemaPath = resolve(__dirname, "schema.sql");
+  const schemaPath = resolveDbAssetPath("schema.sql");
   const sql = await readFile(schemaPath, "utf-8");
   await query(sql);
+
+  const migrationsDir = resolveDbAssetPath("migrations");
+  let migrationFiles: string[] = [];
+  try {
+    migrationFiles = (await readdir(migrationsDir))
+      .filter((name) => /^\d+.*\.sql$/i.test(name))
+      .sort();
+  } catch {
+    migrationFiles = [];
+  }
+
+  for (const fileName of migrationFiles) {
+    const migrationSql = await readFile(resolve(migrationsDir, fileName), "utf-8");
+    if (migrationSql.trim()) {
+      await query(migrationSql);
+    }
+  }
+
   console.log("[DB] Schema 初始化完成");
 }

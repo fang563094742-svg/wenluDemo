@@ -25,7 +25,7 @@
     "goal": "把外部可客观验证任务链固定为可复跑资产，并验证产物已落盘",
     "verifyCmd": "test -f data/verifiable-task-chain/task-chain.json && test -f task_output/verifiable-task-chain/latest-verification.json && grep -F '\"id\": \"vt-chain-bootstrap\"' data/verifiable-task-chain/task-chain.json >/dev/null && grep -F '\"passed\": true' task_output/verifiable-task-chain/latest-verification.json >/dev/null",
     "difficulty": 2,
-    "createdAt": "2026-06-10T11:43:57.434Z"
+    "createdAt": "2026-06-12T03:14:31.832Z"
   },
   {
     "id": "vt-layered-judgment-law-min-source",

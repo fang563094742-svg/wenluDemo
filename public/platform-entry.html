@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜Web 闭环入口</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(255,255,255,0.08);
+      --panel-strong: rgba(255,255,255,0.12);
+      --text: #f5f7fb;
+      --muted: #aab3c5;
+      --accent: #7dd3fc;
+      --accent-2: #86efac;
+      --line: rgba(255,255,255,0.12);
+      --warn: #fbbf24;
+      --danger: #fca5a5;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top right, rgba(125,211,252,0.18), transparent 24%),
+        radial-gradient(circle at left bottom, rgba(134,239,172,0.12), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 32px 18px 60px;
+    }
+    .shell {
+      width: min(920px, 100%);
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 24px;
+      backdrop-filter: blur(14px);
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(30px, 4vw, 44px); line-height: 1.1; }
+    h2 { font-size: 18px; margin-bottom: 14px; }
+    .lead { color: var(--muted); font-size: 16px; margin-top: 14px; max-width: 720px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(125,211,252,0.12);
+      color: var(--accent);
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .box {
+      padding: 16px;
+      border-radius: 18px;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+    }
+    .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { margin-top: 8px; font-size: 18px; line-height: 1.5; }
+    ol, ul { margin: 0; padding-left: 20px; color: var(--muted); }
+    li + li { margin-top: 10px; }
+    strong { color: var(--text); }
+    .cta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .button {
+      text-decoration: none;
+      color: #08111f;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      padding: 12px 18px;
+      border-radius: 14px;
+      font-weight: 700;
+    }
+    .hint { color: var(--muted); font-size: 14px; }
+    .danger { color: var(--danger); }
+    code {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.08);
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="card">
+      <div class="pill">platform-entry · web closure · GUI单核样本</div>
+      <h1>问路｜把 GUI 单核样本压成可外部验证的 web 闭环</h1>
+      <p class="lead">如果你手里有一段重复、机械、容易出错的电脑工作，先别讲长故事。直接把输入、输出、时间三件事发来，我按最小闭环回你：能不能做、多久、多少钱。</p>
+      <div class="cta">
+        <a class="button" href="/">回到问路主界面</a>
+        <span class="hint">当前入口页：<code>/platform-entry.html</code></span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card box">
+        <div class="label">当前唯一目标</div>
+        <div class="value">把 GUI单核样本 升级为一条新的外部可客观验证闭环，并固化为现行法源。</div>
+      </article>
+      <article class="card box">
+        <div class="label">当前唯一阻塞</div>
+        <div class="value">页面入口、内部判断卡、法源产物还没压成同一条能被 HTTP 抓取交叉验证的链路。</div>
+      </article>
+      <article class="card box">
+        <div class="label">当前唯一动作</div>
+        <div class="value">先收三问，再用同源法源沉淀目标/阻塞/动作，避免前台说法和执行脱节。</div>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>三问</h2>
+      <ol>
+        <li><strong>现在输入是什么</strong>：原始文件、页面、表格、文本、素材长什么样？</li>
+        <li><strong>想输出成什么</strong>：最后要我交付什么结果，发给谁，用在哪里？</li>
+        <li><strong>最晚什么时候要</strong>：卡死时间点是什么，先做最小哪一步最值？</li>
+      </ol>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>我承接什么</h2>
+        <ul>
+          <li>表格 / 文本 / 文件批量处理</li>
+          <li>音视频机械处理</li>
+          <li>固定流程按钮化 / 本地小工具化</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>我怎么报价</h2>
+        <ul>
+          <li>默认只做最核心的一步，不一口吞大而全需求。</li>
+          <li>24~72 小时给首版，默认包含 1 次小调整。</li>
+          <li>范围一旦新增，先确认再补差价。</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>禁止回滑</h2>
+        <ul>
+          <li class="danger">不把历史页冒充当前页。</li>
+          <li class="danger">不把内部整理冒充外部结果。</li>
+          <li class="danger">不做多轮免费咨询。</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

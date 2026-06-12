@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜个人中心</title>
+  <link rel="stylesheet" href="/auth.css?v=20260612-2" />
+</head>
+<body data-page="account">
+  <main class="page-shell page account-page">
+    <section class="shell account-shell-wrap">
+      <section class="hero hero-wide account-hero">
+        <div class="hero-head account-hero-head">
+          <div class="account-hero-copy">
+            <div class="brand-block">
+              <div class="brand-mark">WL</div>
+              <div>
+                <p class="eyebrow">ACCOUNT CENTER</p>
+                <h1 class="brand-title">个人中心</h1>
+              </div>
+            </div>
+            <p class="lead account-lead">浅色卡片式个人中心，集中展示会员状态、邀请管理、套餐预览与订单记录。</p>
+          </div>
+          <div class="toolbar account-toolbar">
+            <a class="portal-chip" href="/">主工作台</a>
+            <a class="portal-chip" href="/payment.html">充值</a>
+            <a class="portal-chip" href="http://127.0.0.1:3782/internal-admin" rel="noreferrer" target="_blank">内部后台</a>
+            <button id="refresh-membership-btn" class="btn-secondary" type="button">刷新会员</button>
+            <button id="refresh-orders-btn" class="btn-secondary" type="button">刷新订单</button>
+            <button id="toggle-orders-poll-btn" class="btn-secondary" type="button">切换轮询</button>
+            <button id="logout-btn" class="btn-danger" type="button">退出</button>
+          </div>
+        </div>
+        <div class="pills account-badges">
+          <span id="account-user-badge" class="pill">账号加载中</span>
+          <span id="account-member-badge" class="pill member-pill">会员状态加载中</span>
+        </div>
+      </section>
+
+      <div id="gate-loading" class="card account-gate"><div class="status info">正在校验登录状态…</div></div>
+
+      <section id="account-shell" class="account-dashboard hidden">
+        <div id="account-status" class="status info account-status"></div>
+
+        <section class="grid-2 account-grid">
+          <article class="card account-card account-membership-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">MEMBERSHIP</p>
+                <h2 id="membership-summary-title">会员状态</h2>
+              </div>
+              <span class="inline-badge">状态总览</span>
+            </div>
+            <p id="membership-summary-text" class="lead account-card-lead">-</p>
+            <div class="stat-grid">
+              <div class="mini-stat">
+                <strong>会员上限</strong>
+                <span id="membership-limit">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>试用状态</strong>
+                <span id="membership-trial">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>当前用量</strong>
+                <span id="membership-usage">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>套餐方案</strong>
+                <span id="membership-plan">-</span>
+              </div>
+            </div>
+            <div id="membership-access-summary" class="surface-note account-summary">-</div>
+            <div class="kv account-kv">
+              <div class="kv-item"><span>到期时间</span><strong id="membership-expire">-</strong></div>
+            </div>
+          </article>
+
+          <article class="card account-card account-invite-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">INVITE</p>
+                <h2>邀请管理</h2>
+              </div>
+              <span class="inline-badge">邀请返利</span>
+            </div>
+            <div class="stat-grid stat-grid-2">
+              <div class="mini-stat">
+                <strong>邀请人数</strong>
+                <span id="invite-count">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>邀请码</strong>
+                <span id="invite-code">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>邀请人数明细</strong>
+                <span id="invite-count-detail">-</span>
+              </div>
+              <div class="mini-stat">
+                <strong>邀请链接</strong>
+                <span id="invite-share-link">-</span>
+              </div>
+            </div>
+            <div class="kv account-kv">
+              <div class="kv-item"><span>奖励进度</span><strong id="invite-reward-progress">-</strong></div>
+              <div class="kv-item"><span>奖励累计</span><strong id="invite-reward-total">-</strong></div>
+              <div class="kv-item"><span>最近奖励</span><strong id="invite-reward-latest">-</strong></div>
+            </div>
+            <div class="invite-actions account-actions">
+              <button id="copy-invite-btn" class="btn-primary" type="button">复制邀请码链接</button>
+              <a class="btn-secondary" href="/payment.html">去充值</a>
+              <a class="btn-secondary" href="http://127.0.0.1:3782/internal-admin" rel="noreferrer" target="_blank">打开后台</a>
+            </div>
+            <div id="invite-status" class="surface-note account-summary">-</div>
+            <div class="surface-note account-summary">后台入口仅管理员可用，点击后会打开本机 Basic Auth 面板。</div>
+          </article>
+        </section>
+
+        <section class="grid-2 account-grid">
+          <article class="card account-card account-plan-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">PLANS</p>
+                <h2>套餐预览</h2>
+              </div>
+              <span class="inline-badge">可选方案</span>
+            </div>
+            <div id="plan-preview-list" class="plan-list account-list"></div>
+          </article>
+
+          <article class="card account-card account-order-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">ORDERS</p>
+                <h2>订单记录</h2>
+              </div>
+              <span id="orders-poll-badge" class="poll-badge">轮询待命</span>
+            </div>
+            <div class="toolbar account-toolbar-mini" style="margin-bottom:12px;">
+              <span class="surface-note">订单状态、支付结果与刷新轮询都保留在这里。</span>
+            </div>
+            <div id="order-list" class="order-list account-list"></div>
+          </article>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script src="/auth.js?v=20260612-2"></script>
+</body>
+</html>
