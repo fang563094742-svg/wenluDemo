@@ -305,9 +305,9 @@ CREATE INDEX IF NOT EXISTS idx_auth_device_sessions_device
 -- ============================================================================
 INSERT INTO plans (id, name, price_cents, duration_days, features) VALUES
   ('free',    '免费体验', 0,    0,   '{"max_sessions": 1, "max_messages_per_day": 10, "free_trial_days": 3, "features": ["basic_chat"]}'),
-  ('member',  '会员', 300, 1, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "erf4ee", "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
-  ('monthly', '月度会员', 2900, 30,  '{"max_sessions": 10, "max_messages_per_day": -1, "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
-  ('yearly',  '年度会员', 19900, 365, '{"max_sessions": -1, "max_messages_per_day": -1, "features": ["basic_chat", "deep_scan", "memory", "proactive", "priority"]}')
+  ('member',  '1天会员', 300, 1, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "erf4ee", "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
+  ('monthly', '30天会员', 3000, 30, '{"max_sessions": 10, "max_messages_per_day": -1, "payment_goods_key": "lyx0va", "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
+  ('yearly',  '永久会员', 19900, 0, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "sz6oz0", "features": ["basic_chat", "deep_scan", "memory", "proactive", "priority"]}')
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   price_cents = EXCLUDED.price_cents,
@@ -317,16 +317,16 @@ ON CONFLICT (id) DO UPDATE SET
 UPDATE plans
    SET description = COALESCE(description, CASE id
      WHEN 'free' THEN '适合新用户试用，含基础额度与体验期限制。'
-     WHEN 'member' THEN '短期体验会员，适合临时高频使用。'
-     WHEN 'monthly' THEN '按月开通，适合稳定持续使用。'
-     WHEN 'yearly' THEN '全年会员，适合长期重度使用。'
+     WHEN 'member' THEN '1天体验会员，适合临时高频使用。'
+     WHEN 'monthly' THEN '30天会员，适合稳定持续使用。'
+     WHEN 'yearly' THEN '永久会员，适合长期重度使用。'
      ELSE NULL
    END),
        badge_text = COALESCE(badge_text, CASE id
      WHEN 'free' THEN '试用'
      WHEN 'member' THEN '日卡'
-     WHEN 'monthly' THEN '月付'
-     WHEN 'yearly' THEN '年付'
+     WHEN 'monthly' THEN '月卡'
+     WHEN 'yearly' THEN '永久'
      ELSE NULL
    END),
        sort_order = CASE id

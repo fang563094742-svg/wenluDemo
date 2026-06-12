@@ -1821,12 +1821,12 @@ export async function buildAdminJsRouter(config: AdminConfig): Promise<Router> {
         <h3 style="margin-top:18px;">编辑套餐</h3>
         <form method="post" action="${config.rootPath}/plans/${encodeURIComponent(row.id)}">
           <label>套餐名称<input name="name" value="${escapeHtml(row.name)}" required /></label>
-          <label>展示角标<input name="badgeText" value="${escapeHtml(row.badge_text ?? "")}" placeholder="如：推荐 / 热销 / 年付" /></label>
+          <label>展示角标<input name="badgeText" value="${escapeHtml(row.badge_text ?? "")}" placeholder="如：推荐 / 热销 / 永久" /></label>
           <label>展示文案<textarea name="description" placeholder="前端/后台展示的套餐说明">${escapeHtml(row.description ?? "")}</textarea></label>
           <label>价格（分）<input name="priceCents" value="${row.price_cents}" inputmode="numeric" required /></label>
-          <div class="muted">例如：300 = 3 元，2900 = 29 元</div>
+          <div class="muted">例如：300 = 3 元，3000 = 30 元</div>
           <label>会员时长（天，0 表示长期）<input name="durationDays" value="${row.duration_days}" inputmode="numeric" required /></label>
-          <div class="muted">常用：1 = 1 天，30 = 1 个月，365 = 1 年</div>
+          <div class="muted">常用：1 = 1 天，30 = 1 个月，0 = 永久/不限时</div>
           <label>支付商品标识 / goods key<input name="paymentGoodsKey" value="${escapeHtml(formatPlanPaymentGoodsKey(row) === "-" ? "" : formatPlanPaymentGoodsKey(row))}" placeholder="例如：6idmbq" /></label>
           <div class="muted">填写链动小铺的明确商品标识后，后端创建支付订单时会优先使用它。</div>
           <label>展示排序（越小越靠前）<input name="sortOrder" value="${row.sort_order}" inputmode="numeric" required /></label>
@@ -1858,8 +1858,8 @@ export async function buildAdminJsRouter(config: AdminConfig): Promise<Router> {
       <div class="card" style="margin-bottom:16px;">
         <h3>套餐配置说明</h3>
         <ul class="compact">
-          <li>价格单位为<strong>分</strong>，例如 300 表示 3 元，2900 表示 29 元。</li>
-          <li>时长单位为<strong>天</strong>，例如 1 = 1 天，30 = 1 个月，365 = 1 年，0 = 长期/不限时。</li>
+          <li>价格单位为<strong>分</strong>，例如 300 表示 3 元，3000 表示 30 元。</li>
+          <li>时长单位为<strong>天</strong>，例如 1 = 1 天，30 = 1 个月，0 = 长期/不限时。</li>
           <li>关闭“上架并允许前台展示/售卖”后，该套餐不会在前端展示给用户。</li>
           <li>“支付商品标识 / goods key” 用来把套餐显式绑定到链动小铺商品，优先级高于环境变量映射和按金额匹配。</li>
           <li>功能配置 JSON 可继续控制免费额度、会员能力、标签等扩展字段。</li>
