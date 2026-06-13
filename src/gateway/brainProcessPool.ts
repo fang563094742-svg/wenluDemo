@@ -5,14 +5,15 @@
  * 进程间天然完全隔离（各自全局态 + 各自 PG 行经 WHERE user_id + RLS）。本池负责：
  *  - 按需唤起：首次有该用户请求时 spawn 其大脑进程，轮询 /health 就绪后才放行。
  *  - 空闲回收：超过 idleTimeoutMs 无活动的进程优雅终止（SIGTERM → 进程内 saveMind + closePool）。
- *  - 端口分配：从 basePort 起找空闲端口。
+ *  - 端口分配：从 basePort 起找“操作系统层面确实空闲”的端口（真实 listen 探测，避免端口冲突）。
  *
  * 直接以 `node <tsx-cli> src/riverMain.ts` spawn 单一子进程，便于按 PID 干净回收。
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve as resolvePath } from "node:path";
 import { request as httpRequest } from "node:http";
+import { createServer } from "node:net";
+import { resolve as resolvePath } from "node:path";
 
 export interface BrainProc {
   userId: string;
@@ -25,10 +26,10 @@ export interface BrainProc {
 
 export interface PoolOptions {
   repoRoot: string;
-  basePort: number;          // 子进程端口起点（如 4100）
-  maxProcs: number;          // 最多并发大脑进程
-  idleTimeoutMs: number;     // 空闲多久回收
-  healthTimeoutMs: number;   // 等待就绪上限
+  basePort: number;
+  maxProcs: number;
+  idleTimeoutMs: number;
+  healthTimeoutMs: number;
 }
 
 const DEFAULTS: Omit<PoolOptions, "repoRoot"> = {
@@ -58,32 +59,56 @@ export class BrainProcessPool {
       existing.lastActiveAt = Date.now();
       return existing;
     }
+
     const inflight = this.starting.get(userId);
     if (inflight) return inflight;
 
-    const p = this.spawnFor(userId);
-    this.starting.set(userId, p);
+    const promise = this.spawnFor(userId);
+    this.starting.set(userId, promise);
     try {
-      const bp = await p;
-      return bp;
+      return await promise;
     } finally {
       this.starting.delete(userId);
     }
   }
 
-  private allocPort(): number {
-    for (let port = this.opts.basePort; port < this.opts.basePort + 1000; port++) {
-      if (!this.usedPorts.has(port)) { this.usedPorts.add(port); return port; }
+  /** 真实探测端口在操作系统层面是否空闲（尝试 listen，能起来即空闲）。 */
+  private isPortFree(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = createServer();
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      server.once("error", () => finish(false));
+      server.once("listening", () => {
+        server.close(() => finish(true));
+      });
+      server.listen(port, "127.0.0.1");
+    });
+  }
+
+  /** 从 basePort 起找一个“确实空闲”的端口分配出去（已占用或被占的跳过）。 */
+  private async allocPort(): Promise<number> {
+    for (let port = this.opts.basePort; port < this.opts.basePort + 1000; port += 1) {
+      if (this.usedPorts.has(port)) continue;
+      const free = await this.isPortFree(port);
+      if (!free) continue;
+      this.usedPorts.add(port);
+      return port;
     }
-    throw new Error("[gateway] 无可用端口");
+    throw new Error("[gateway] no free port available");
   }
 
   private async spawnFor(userId: string): Promise<BrainProc> {
     if (this.procs.size >= this.opts.maxProcs) {
-      // 满了 → 先回收最久未活动者
       await this.evictLru();
     }
-    const port = this.allocPort();
+
+    const port = await this.allocPort();
     const tsxCli = resolvePath(this.opts.repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
     const proc = spawn(process.execPath, [tsxCli, "src/riverMain.ts"], {
       cwd: this.opts.repoRoot,
@@ -91,19 +116,34 @@ export class BrainProcessPool {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
-    proc.stdout?.on("data", () => { /* 子进程日志可按需转存 */ });
-    proc.stderr?.on("data", (d) => { console.error(`[gw:child ${userId.slice(0, 8)}:${port}] ${String(d).slice(0, 300)}`); });
 
-    const bp: BrainProc = { userId, port, proc, ready: false, startedAt: Date.now(), lastActiveAt: Date.now() };
+    proc.stdout?.on("data", () => {});
+    proc.stderr?.on("data", (chunk) => {
+      console.error(`[gw:child ${userId.slice(0, 8)}:${port}] ${String(chunk).slice(0, 300)}`);
+    });
+
+    const bp: BrainProc = {
+      userId,
+      port,
+      proc,
+      ready: false,
+      startedAt: Date.now(),
+      lastActiveAt: Date.now(),
+    };
     this.procs.set(userId, bp);
 
     proc.on("exit", (code, signal) => {
       console.error(`[gw:child ${userId.slice(0, 8)}:${port}] exit code=${code} signal=${signal}`);
       this.usedPorts.delete(port);
-      const cur = this.procs.get(userId);
-      if (cur && cur.proc === proc) this.procs.delete(userId);
+      const current = this.procs.get(userId);
+      if (current?.proc === proc) {
+        this.procs.delete(userId);
+      }
     });
-    proc.on("error", (err) => { console.error(`[gw:child ${userId.slice(0, 8)}:${port}] spawn error: ${err.message}`); });
+
+    proc.on("error", (err) => {
+      console.error(`[gw:child ${userId.slice(0, 8)}:${port}] spawn error: ${err.message}`);
+    });
 
     await this.waitHealthy(port);
     bp.ready = true;
@@ -115,58 +155,88 @@ export class BrainProcessPool {
     while (Date.now() < deadline) {
       const ok = await this.pingHealth(port);
       if (ok) return;
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    throw new Error(`[gateway] 大脑进程 port=${port} 在 ${this.opts.healthTimeoutMs}ms 内未就绪`);
+    throw new Error(`[gateway] brain process port=${port} did not become healthy within ${this.opts.healthTimeoutMs}ms`);
   }
 
   private pingHealth(port: number): Promise<boolean> {
     return new Promise((resolve) => {
-      const req = httpRequest({ host: "127.0.0.1", port, path: "/health", method: "GET", timeout: 2000 }, (res) => {
-        res.resume();
-        resolve(res.statusCode === 200);
-      });
+      const req = httpRequest(
+        { host: "127.0.0.1", port, path: "/health", method: "GET", timeout: 2000 },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode === 200);
+        },
+      );
       req.on("error", () => resolve(false));
-      req.on("timeout", () => { req.destroy(); resolve(false); });
+      req.on("timeout", () => {
+        req.destroy();
+        resolve(false);
+      });
       req.end();
     });
   }
 
   private async evictLru(): Promise<void> {
     let oldest: BrainProc | null = null;
-    for (const bp of this.procs.values()) {
-      if (!oldest || bp.lastActiveAt < oldest.lastActiveAt) oldest = bp;
+    for (const proc of this.procs.values()) {
+      if (!oldest || proc.lastActiveAt < oldest.lastActiveAt) {
+        oldest = proc;
+      }
     }
-    if (oldest) await this.stop(oldest.userId);
+    if (oldest) {
+      await this.stop(oldest.userId);
+    }
   }
 
   private async reapIdle(): Promise<void> {
     const now = Date.now();
-    const toStop: string[] = [];
-    for (const bp of this.procs.values()) {
-      if (now - bp.lastActiveAt > this.opts.idleTimeoutMs) toStop.push(bp.userId);
+    const staleUserIds: string[] = [];
+    for (const proc of this.procs.values()) {
+      if (now - proc.lastActiveAt > this.opts.idleTimeoutMs) {
+        staleUserIds.push(proc.userId);
+      }
     }
-    for (const uid of toStop) await this.stop(uid);
+    for (const userId of staleUserIds) {
+      await this.stop(userId);
+    }
   }
 
-  /** 优雅停止某用户大脑进程（SIGTERM → 进程内 saveMind + closePool）。 */
+  /** 优雅停止某用户大脑进程（SIGTERM → 进程内 saveMind + closePool，3s 未退则强杀）。 */
   async stop(userId: string): Promise<void> {
-    const bp = this.procs.get(userId);
-    if (!bp) return;
+    const proc = this.procs.get(userId);
+    if (!proc) return;
+
     this.procs.delete(userId);
-    this.usedPorts.delete(bp.port);
-    try { bp.proc.kill("SIGTERM"); } catch { /* ignore */ }
-    // 兜底：3s 未退则强杀
-    setTimeout(() => { try { if (!bp.proc.killed) bp.proc.kill("SIGKILL"); } catch { /* ignore */ } }, 3000).unref?.();
+    this.usedPorts.delete(proc.port);
+
+    try {
+      proc.proc.kill("SIGTERM");
+    } catch {}
+
+    setTimeout(() => {
+      try {
+        if (!proc.proc.killed) proc.proc.kill("SIGKILL");
+      } catch {}
+    }, 3000).unref?.();
   }
 
   async shutdownAll(): Promise<void> {
-    if (this.reaper) { clearInterval(this.reaper); this.reaper = null; }
-    await Promise.all([...this.procs.keys()].map((uid) => this.stop(uid)));
+    if (this.reaper) {
+      clearInterval(this.reaper);
+      this.reaper = null;
+    }
+    await Promise.all([...this.procs.keys()].map((userId) => this.stop(userId)));
   }
 
   list(): Array<{ userId: string; port: number; ready: boolean; idleMs: number }> {
     const now = Date.now();
-    return [...this.procs.values()].map((bp) => ({ userId: bp.userId, port: bp.port, ready: bp.ready, idleMs: now - bp.lastActiveAt }));
+    return [...this.procs.values()].map((proc) => ({
+      userId: proc.userId,
+      port: proc.port,
+      ready: proc.ready,
+      idleMs: now - proc.lastActiveAt,
+    }));
   }
 }
