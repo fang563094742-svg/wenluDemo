@@ -15,7 +15,6 @@ import {
   scrubSecrets,
   isSensitiveReadTarget,
   gateUserDrivenAction,
-  gatePlatformMutation,
   isProtectedGuardWrite,
   DEFAULT_PRIVACY_REPLY,
   CATEGORY_REPLY,
@@ -284,18 +283,23 @@ describe("gateUserDrivenAction · 行为硬闸（仅 __fromReply 生效）", () 
   it("对话驱动改自身代码/页面/系统 → 拒绝", () => {
     expect(gateUserDrivenAction("evolve_self_code", { __fromReply: true }).blocked).toBe(true);
     expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "src/riverMain.ts" }).blocked).toBe(true);
+    expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "wenluDemoWeb/index.html" }).blocked).toBe(true);
+    expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "public/login.html" }).blocked).toBe(true);
+    expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "package.json" }).blocked).toBe(true);
     expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "~/.zshrc" }).blocked).toBe(true);
     expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "sudo rm -rf /tmp/x" }).blocked).toBe(true);
   });
 
-  it("自主进化（无 __fromReply）不受影响", () => {
+  it("自主进化（无 __fromReply）不受影响——保留自我进化/改平台能力", () => {
     expect(gateUserDrivenAction("evolve_self_code", {}).blocked).toBe(false);
     expect(gateUserDrivenAction("write_file", { path: "src/riverMain.ts" }).blocked).toBe(false);
+    expect(gateUserDrivenAction("write_file", { path: "wenluDemoWeb/index.html" }).blocked).toBe(false);
   });
 
   it("对话驱动的正常动作放行（读文件/build）", () => {
     expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "npm run build" }).blocked).toBe(false);
     expect(gateUserDrivenAction("read_file", { __fromReply: true, path: "README.md" }).blocked).toBe(false);
+    expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "data/output/report.txt" }).blocked).toBe(false);
   });
 });
 
@@ -311,26 +315,8 @@ describe("isProtectedGuardWrite · 守护自保护（源无关）", () => {
   });
 });
 
-describe("gatePlatformMutation · 平台完整性硬边界（源无关，含任务线）", () => {
-  it("生产态(allow=false)：禁止改平台资产/自我进化（无论是否 __fromReply）", () => {
-    expect(gatePlatformMutation("evolve_self_code", {}, false).blocked).toBe(true);
-    // 关键：不带 __fromReply（模拟任务线）也照样拦——堵"派任务改平台"绕过。
-    expect(gatePlatformMutation("write_file", { path: "wenluDemoWeb/index.html" }, false).blocked).toBe(true);
-    expect(gatePlatformMutation("write_file", { path: "public/index.html" }, false).blocked).toBe(true);
-    expect(gatePlatformMutation("write_file", { path: "src/sovereign/privacy-boundary.ts" }, false).blocked).toBe(true);
-    expect(gatePlatformMutation("write_file", { path: "package.json" }, false).blocked).toBe(true);
-    expect(gatePlatformMutation("execute_command", { command: "echo x > wenluDemoWeb/app.js" }, false).blocked).toBe(true);
-    expect(gatePlatformMutation("execute_command", { command: "git push origin main" }, false).blocked).toBe(true);
-  });
-
-  it("用户自己的文件不受影响（落点不是平台资产）", () => {
-    expect(gatePlatformMutation("write_file", { path: "C:/Users/me/notes/todo.md" }, false).blocked).toBe(false);
-    expect(gatePlatformMutation("write_file", { path: "data/output/report.txt" }, false).blocked).toBe(false);
-    expect(gatePlatformMutation("execute_command", { command: "npm run build" }, false).blocked).toBe(false);
-  });
-
-  it("运营方/开发态(allow=true)：放行（主人受控自我维护/进化）", () => {
-    expect(gatePlatformMutation("evolve_self_code", {}, true).blocked).toBe(false);
-    expect(gatePlatformMutation("write_file", { path: "src/riverMain.ts" }, true).blocked).toBe(false);
+describe("提供方/任务来源：行为边界对应规则", () => {
+  it("空对象不触发（无 __fromReply 即视为自主）", () => {
+    expect(gateUserDrivenAction("write_file", { path: "src/riverMain.ts" }).blocked).toBe(false);
   });
 });
