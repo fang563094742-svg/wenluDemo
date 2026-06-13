@@ -161,6 +161,10 @@
   function saveAuth(payload) {
     var normalized = normalizeAuthPayload(payload);
     if (!normalized) return;
+    var previousUser = getUser();
+    var previousUserId = previousUser && previousUser.id ? String(previousUser.id) : '';
+    var nextUser = normalized.user && typeof normalized.user === 'object' ? normalized.user : null;
+    var nextUserId = nextUser && nextUser.id ? String(nextUser.id) : '';
     storageSet(TOKEN_KEY, normalized.accessToken || normalized.token || '');
     if (normalized.refreshToken) storageSet(REFRESH_TOKEN_KEY, normalized.refreshToken);
     if (normalized.user) storageSet(USER_KEY, JSON.stringify(normalized.user));
@@ -168,6 +172,11 @@
     if (normalized.refreshExpiresAt) storageSet(REFRESH_EXPIRES_AT_KEY, normalized.refreshExpiresAt);
     if (normalized.sessionId) storageSet(SESSION_ID_KEY, normalized.sessionId);
     scheduleTokenRefresh();
+    if (previousUserId && nextUserId && previousUserId !== nextUserId && typeof window !== 'undefined') {
+      window.setTimeout(function () {
+        window.location.reload();
+      }, 0);
+    }
   }
 
   function clearAuth() {
@@ -443,7 +452,7 @@
     var cachedUser = getUser();
     try {
       var me = await request('/api/auth/me', { method: 'GET' });
-      var user = Object.assign({}, cachedUser || {}, normalizeUserPayload(me) || {});
+      var user = normalizeUserPayload(me) || cachedUser || null;
       storageSet(USER_KEY, JSON.stringify(user));
       scheduleTokenRefresh();
       return user;
@@ -660,23 +669,23 @@
     },
     {
       id: 'member',
-      name: '会员',
+      name: '1天会员',
       price_cents: 300,
       duration_days: 1,
       features: { max_sessions: -1, max_messages_per_day: -1, features: ['深度扫描', '记忆能力', '主动执行'] }
     },
     {
       id: 'monthly',
-      name: '月度会员',
-      price_cents: 2900,
+      name: '30天会员',
+      price_cents: 3000,
       duration_days: 30,
       features: { max_sessions: 10, max_messages_per_day: 100, features: ['深度扫描', '记忆能力', '主动执行'] }
     },
     {
       id: 'yearly',
-      name: '年度会员',
+      name: '永久会员',
       price_cents: 19900,
-      duration_days: 365,
+      duration_days: 0,
       features: { max_sessions: -1, max_messages_per_day: -1, features: ['深度扫描', '记忆能力', '主动执行', '优先响应'] }
     }
   ];
@@ -1074,9 +1083,17 @@
     return membership.planName || membership.planId || (membership.isMember ? '会员' : '免费体验');
   }
 
+  function isPermanentMembership(membership) {
+    if (!membership) return false;
+    var planId = String(membership.planId || '').trim();
+    var planName = String(membership.planName || '').trim();
+    return planId === 'yearly' || /永久/.test(planName);
+  }
+
   function getMembershipExpireText(membership) {
     if (!membership) return '未返回';
     if (membership.subscriptionExpiresAt) return formatDate(membership.subscriptionExpiresAt);
+    if (isPermanentMembership(membership)) return '永久';
     return membership.isMember ? '长期/待确认' : '未开通';
   }
 
@@ -1124,7 +1141,7 @@
 
   function getPlanDurationText(plan) {
     var days = Number(plan && plan.duration_days || 0);
-    return days > 0 ? ('有效期 ' + days + ' 天') : '长期/试用套餐';
+    return days > 0 ? ('有效期 ' + days + ' 天') : '长期/永久套餐';
   }
 
   async function fetchPlansSnapshot() {
@@ -1343,6 +1360,9 @@
     var jumpBtn = $('jump-recharge-btn');
     var isMember = !!(membership && membership.isMember);
     var shouldRecharge = !membership || !isMember || membership.allowed === false || membership.trialExpired || (typeof membership.dailyRemaining === 'number' && membership.dailyRemaining <= 0);
+    var expireText = getMembershipExpireText(membership);
+    var expireBadgeText = isPermanentMembership(membership) ? '永久' : ('到期 ' + expireText);
+    var expireDetailText = isPermanentMembership(membership) ? '永久有效' : ('到期时间：' + expireText);
 
     if (card) {
       card.classList[isMember ? 'add' : 'remove']('member');
@@ -1352,7 +1372,7 @@
       flag.classList.remove('free', 'member');
       flag.classList.add(isMember ? 'member' : 'free');
       flag.innerHTML = isMember
-        ? '<strong>会员</strong><span>' + escapeHtml(getMembershipPlanLabel(membership)) + '</span>'
+        ? '<strong>会员</strong><span>' + escapeHtml(isPermanentMembership(membership) ? '永久' : expireBadgeText) + '</span>'
         : '<strong>免费</strong><span>免费体验</span>';
     }
     if ($('membership-subtitle')) $('membership-subtitle').textContent = getMembershipSummaryText(membership);
@@ -1360,14 +1380,14 @@
       $('member-plan-badge').textContent = '套餐 ' + getMembershipPlanLabel(membership);
       $('member-plan-badge').className = 'badge' + (isMember ? ' member' : '');
     }
-    if ($('member-expire-badge')) $('member-expire-badge').textContent = '到期 ' + getMembershipExpireText(membership);
+    if ($('member-expire-badge')) $('member-expire-badge').textContent = expireBadgeText;
     if ($('member-usage-badge')) $('member-usage-badge').textContent = '额度 ' + getMembershipUsageText(membership);
     if ($('membership-feature-summary')) $('membership-feature-summary').textContent = getMembershipSummaryText(membership);
     if ($('membership-access-summary')) $('membership-access-summary').textContent = getMembershipRestrictionText(membership);
     if ($('membership-trial-summary')) $('membership-trial-summary').textContent = getMembershipTrialText(membership, user);
     if (alertTitle) alertTitle.textContent = isMember ? '会员身份已生效' : '当前不是会员，建议尽快充值';
     if (alertText) alertText.textContent = isMember
-      ? ('当前套餐：' + getMembershipPlanLabel(membership) + '，到期时间：' + getMembershipExpireText(membership))
+      ? ('当前套餐：' + getMembershipPlanLabel(membership) + '，' + expireDetailText)
       : getMembershipRestrictionText(membership);
     if (jumpBtn) jumpBtn.textContent = isMember ? '查看个人中心' : '立即充值';
 
@@ -1378,7 +1398,7 @@
     if ($('business-access-text')) $('business-access-text').textContent = getMembershipSummaryText(membership);
     if ($('business-limit-text')) $('business-limit-text').textContent = getMembershipRestrictionText(membership) + ' ' + getMembershipTrialText(membership, user);
     if ($('business-plan-badge')) $('business-plan-badge').textContent = '套餐 ' + getMembershipPlanLabel(membership);
-    if ($('business-expire-badge')) $('business-expire-badge').textContent = '到期 ' + getMembershipExpireText(membership);
+    if ($('business-expire-badge')) $('business-expire-badge').textContent = expireBadgeText;
     if ($('business-usage-badge')) $('business-usage-badge').textContent = '额度 ' + getMembershipUsageText(membership);
     if ($('business-upgrade-btn')) {
       $('business-upgrade-btn').setAttribute('href', '/payment.html');

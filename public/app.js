@@ -585,9 +585,22 @@
   var topicsNewBtn = document.getElementById("topics-new-btn");
   var topicsToggleBtn = document.getElementById("topics-toggle-btn");
 
-  // 当前查看频道：纯前端 state + localStorage（后端不持有 active）。
+  function getCurrentAccountId() {
+    try {
+      var authUser = JSON.parse(localStorage.getItem("auth_user") || "null");
+      return authUser && authUser.id ? String(authUser.id) : "guest";
+    } catch (e) {
+      return "guest";
+    }
+  }
+
+  function getCurrentChannelStorageKey() {
+    return "wenlu_current_channel::" + getCurrentAccountId();
+  }
+
+  // 当前查看频道：按账号分开存储（后端不持有 active）。
   var currentChannelId = (function () {
-    try { return localStorage.getItem("wenlu_current_channel") || "chat_default"; } catch (e) { return "chat_default"; }
+    try { return localStorage.getItem(getCurrentChannelStorageKey()) || "chat_default"; } catch (e) { return "chat_default"; }
   })();
   var channelKindMap = {}; // id -> kind
 
@@ -596,7 +609,7 @@
 
   function setCurrentChannel(id) {
     currentChannelId = id;
-    try { localStorage.setItem("wenlu_current_channel", id); } catch (e) {}
+    try { localStorage.setItem(getCurrentChannelStorageKey(), id); } catch (e) {}
   }
 
   function isSystemChannel(id) {
