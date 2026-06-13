@@ -305,8 +305,10 @@ export interface ActionGateResult {
 const ALLOW: ActionGateResult = { blocked: false, reason: null };
 
 /** 平台资产写入路径（wenlu 自身源码/前端页/配置/守护脚本）——用户驱动写入这些即拦。 */
+// 注意：路径段锚点用 (^|[\s"'\/\\])——既匹配 write_file 的纯路径(行首)，也匹配 execute_command
+// 里嵌在命令中间、前面是空格/引号的路径(如 `Out-File public/index.html`)。
 const SELF_SOURCE_PATH_RE =
-  /(^|[\/\\])src[\/\\]|riverMain|privacy-boundary|wenluDemoWeb|(^|[\/\\])public[\/\\](index|app|login|register|auth|account|payment|platform-entry|vendor)|platform-entry|payment-entry|(^|[\/\\])\.kiro[\/\\]|(^|[\/\\])scripts[\/\\]|(^|[\/\\])package\.json|(^|[\/\\])tsconfig\.json|vitest\.config|run-river-supervised|tauri\.conf\.json|Cargo\.toml/i;
+  /(^|[\s"'\/\\])src[\/\\]|riverMain|privacy-boundary|wenluDemoWeb|(^|[\s"'\/\\])public[\/\\](index|app|login|register|auth|account|payment|platform-entry|vendor)|platform-entry|payment-entry|(^|[\s"'\/\\])\.kiro[\/\\]|(^|[\s"'\/\\])scripts[\/\\]|(^|[\s"'\/\\])package\.json|(^|[\s"'\/\\])tsconfig\.json|vitest\.config|run-river-supervised|tauri\.conf\.json|Cargo\.toml/i;
 
 /** 触碰系统级环境的写入路径（shell 启动文件、守护进程、密钥、系统目录等）。 */
 const SYSTEM_PATH_RE =
@@ -386,10 +388,13 @@ export function gateUserDrivenAction(
 
   if (toolName === "execute_command") {
     const cmd = String(args?.command ?? "");
-    if (DANGEROUS_CMD_RE.test(cmd)) {
+    // 命中危险系统命令，或命令里引用了"平台资产路径"（src/、wenluDemoWeb、public 页、.kiro、
+    // package.json 等）——后者堵住 Set-Content/Out-File/重定向/cp/mv 等绕过 write_file 改平台的写法，
+    // 同时也挡住用命令读取平台源码外泄。用户自己机器上的命令不会引用平台仓库路径，误伤极低。
+    if (DANGEROUS_CMD_RE.test(cmd) || SELF_SOURCE_PATH_RE.test(cmd)) {
       return {
         blocked: true,
-        reason: "这条命令我不会照对话执行——它会动到我自己或这台机器的根基，不在对话能驱动的范围里。",
+        reason: "这条命令我不会照对话执行——它会动到平台自身或这台机器的根基，不在对话能驱动的范围里。",
       };
     }
   }

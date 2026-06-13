@@ -288,6 +288,10 @@ describe("gateUserDrivenAction · 行为硬闸（仅 __fromReply 生效）", () 
     expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "package.json" }).blocked).toBe(true);
     expect(gateUserDrivenAction("write_file", { __fromReply: true, path: "~/.zshrc" }).blocked).toBe(true);
     expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "sudo rm -rf /tmp/x" }).blocked).toBe(true);
+    // 堵 write_file 绕过：用命令(Set-Content/Out-File/重定向)写平台路径，也要拦。
+    expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "Set-Content -Path wenluDemoWeb/index.html -Value test" }).blocked).toBe(true);
+    expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "echo x | Out-File public/index.html" }).blocked).toBe(true);
+    expect(gateUserDrivenAction("execute_command", { __fromReply: true, command: "Get-Content src/riverMain.ts" }).blocked).toBe(true);
   });
 
   it("自主进化（无 __fromReply）不受影响——保留自我进化/改平台能力", () => {
