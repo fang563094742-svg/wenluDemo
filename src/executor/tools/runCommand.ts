@@ -47,9 +47,6 @@ const RUN_COMMAND_SPEC: ToolSpec = {
   },
 };
 
-/**
- * 拼接 stdout/stderr 与退出信息为可回灌摘要。
- */
 function summarize(
   stdout: string,
   stderr: string,
@@ -62,11 +59,19 @@ function summarize(
   return parts.join("\n");
 }
 
-/**
- * 内置 `run_command` 工具实例。执行前做符号链接逃逸检测，执行时施加超时。
- *
- * @param timeoutMs 执行超时（毫秒），默认 `RUN_COMMAND_TIMEOUT_MS`，便于测试注入更短超时。
- */
+function resolveShell(): { command: string; args: string[] } {
+  if (process.platform === "win32") {
+    return {
+      command: "powershell.exe",
+      args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"],
+    };
+  }
+  return {
+    command: "/bin/sh",
+    args: ["-lc"],
+  };
+}
+
 export function createRunCommandTool(
   timeoutMs: number = RUN_COMMAND_TIMEOUT_MS,
 ): Executor_Tool {
@@ -88,7 +93,6 @@ export function createRunCommandTool(
         });
       }
 
-      // 防御性纵深：cwd（sandbox 根）越界自校验（R12.2 / R12.4）。
       if (!ctx.sandbox.isInside(ctx.workingDirRoot)) {
         return Promise.resolve({
           ok: false,
@@ -98,7 +102,6 @@ export function createRunCommandTool(
         });
       }
 
-      // 1) 符号链接逃逸检测：命令含越界 `ln -s` → 阻止并记录 blocked（R12.2）。
       const linkViolation = detectSymlinkEscape(
         { id: "run_command", name: "run_command", arguments: { command } },
         ctx.sandbox,
@@ -112,11 +115,11 @@ export function createRunCommandTool(
         });
       }
 
-      // 2) 执行（cwd = sandbox 根），施加超时；超时即终止子进程（可回灌的非致命错误）。
       return new Promise<ToolResult>((resolve) => {
-        const child = spawn(command, {
+        const shell = resolveShell();
+        const child = spawn(shell.command, [...shell.args, command], {
           cwd: ctx.workingDirRoot,
-          shell: true,
+          shell: false,
         });
 
         let stdout = "";
@@ -136,41 +139,46 @@ export function createRunCommandTool(
           stderr += chunk.toString();
         });
 
-        const finish = (result: ToolResult): void => {
+        child.on("error", (err) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          resolve(result);
-        };
-
-        child.on("error", (err) => {
-          finish({
+          resolve({
             ok: false,
-            output: summarize(stdout, stderr, ""),
-            error: `命令启动失败: ${err.message}`,
+            output: summarize(stdout, stderr, `进程启动失败: ${err.message}`),
+            error: `运行命令失败: ${err.message}`,
           });
         });
 
         child.on("close", (code, signal) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+
           if (timedOut) {
-            finish({
+            resolve({
               ok: false,
-              output: summarize(stdout, stderr, `已超时终止（信号 ${signal ?? "SIGKILL"}）`),
-              error: `命令执行超时（>${timeoutMs}ms），已终止子进程`,
+              output: summarize(stdout, stderr, `命令执行超时（>${timeoutMs}ms）`),
+              error: `命令执行超时（>${timeoutMs}ms）`,
             });
             return;
           }
+
           if (code === 0) {
-            finish({
+            resolve({
               ok: true,
-              output: summarize(stdout, stderr, "退出码 0"),
+              output: summarize(stdout, stderr, "exit_code: 0"),
             });
             return;
           }
-          finish({
+
+          const exitInfo = signal
+            ? `exit_signal: ${signal}`
+            : `exit_code: ${code ?? "unknown"}`;
+          resolve({
             ok: false,
-            output: summarize(stdout, stderr, `退出码 ${code ?? "null"}（信号 ${signal ?? "无"}）`),
-            error: `命令以非零退出码 ${code ?? "null"} 结束`,
+            output: summarize(stdout, stderr, exitInfo),
+            error: `命令执行失败（${exitInfo}）`,
           });
         });
       });
@@ -178,7 +186,4 @@ export function createRunCommandTool(
   };
 }
 
-/**
- * 内置 `run_command` 工具实例（使用默认超时 `RUN_COMMAND_TIMEOUT_MS`）。
- */
-export const runCommandTool: Executor_Tool = createRunCommandTool();
+export const runCommandTool = createRunCommandTool();

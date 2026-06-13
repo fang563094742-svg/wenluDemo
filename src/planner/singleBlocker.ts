@@ -23,14 +23,14 @@ export interface ShrinkPlanResult {
 }
 
 function priorityValue(item: PlannerItem): number {
-  return item.priority ?? 0;
+  return item.priority ?? Number.MAX_SAFE_INTEGER;
 }
 
 function sortByPriorityThenId(items: ReadonlyArray<PlannerItem>): PlannerItem[] {
   return [...items].sort((a, b) => {
     const pa = priorityValue(a);
     const pb = priorityValue(b);
-    if (pa !== pb) return pb - pa;
+    if (pa !== pb) return pa - pb;
     return a.id.localeCompare(b.id);
   });
 }
@@ -55,10 +55,13 @@ function findRootBlocker(
 ): PlannerItem {
   const unresolvedDeps = collectOutstandingDeps(item, doneIds);
   if (unresolvedDeps.length === 0) return item;
+
   const nextDepId = unresolvedDeps[0];
   if (visiting.has(nextDepId)) return item;
+
   const nextDep = itemIndex.get(nextDepId);
   if (!nextDep) return item;
+
   visiting.add(item.id);
   return findRootBlocker(nextDep, itemIndex, doneIds, visiting);
 }

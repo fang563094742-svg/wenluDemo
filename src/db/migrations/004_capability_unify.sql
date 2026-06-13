@@ -17,8 +17,31 @@ ALTER TABLE capability_pool ADD COLUMN IF NOT EXISTS success_count    INT NOT NU
 ALTER TABLE capability_pool ADD COLUMN IF NOT EXISTS review_note      TEXT;
 
 -- title/description 原为 NOT NULL（002）；repo.ts 以 name 为主、不写 title，故放开 NOT NULL。
-ALTER TABLE capability_pool ALTER COLUMN title DROP NOT NULL;
-ALTER TABLE capability_pool ALTER COLUMN description DROP NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'capability_pool'
+      AND column_name = 'title'
+  ) THEN
+    EXECUTE 'ALTER TABLE capability_pool ALTER COLUMN title DROP NOT NULL';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'capability_pool'
+      AND column_name = 'description'
+  ) THEN
+    EXECUTE 'ALTER TABLE capability_pool ALTER COLUMN description DROP NOT NULL';
+  END IF;
+END $$;
 
 -- status 原为 review_status ENUM（pending/approved/rejected），不含 repo.ts 用的 'auto_approved'。
 -- 改为 TEXT，避免 ENUM 在事务内 ADD VALUE 的限制，并兼容 repo.ts 全部取值。
@@ -49,4 +72,15 @@ CREATE INDEX IF NOT EXISTS idx_cap_inherit_user ON capability_inheritances(user_
 
 -- 旧数据保留：002 的 capability_pool 行（title 等）仍在；user_capabilities/capability_submissions 保留不动。
 -- 若旧 capability_pool 有数据且 name 为空，用 title 回填 name，保证 repo.ts 按 name 查得到。
-UPDATE capability_pool SET name = title WHERE name IS NULL AND title IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'capability_pool'
+      AND column_name = 'title'
+  ) THEN
+    EXECUTE 'UPDATE capability_pool SET name = title WHERE name IS NULL AND title IS NOT NULL';
+  END IF;
+END $$;

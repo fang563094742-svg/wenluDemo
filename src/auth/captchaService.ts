@@ -9,7 +9,6 @@ const execFileAsync = promisify(execFile);
 const HELPER_DIR = resolve(process.cwd(), "playground/go-captcha-helper");
 const HELPER_BIN = resolve(HELPER_DIR, "wenlu-go-captcha-helper");
 
-const CAPTCHA_ENABLED = (process.env.AUTH_CAPTCHA_ENABLED ?? "true").trim().toLowerCase() !== "false";
 const CAPTCHA_TTL_MS = readPositiveInt(process.env.AUTH_CAPTCHA_TTL_MS, 2 * 60 * 1000);
 const CAPTCHA_TICKET_TTL_MS = readPositiveInt(process.env.AUTH_CAPTCHA_TICKET_TTL_MS, 10 * 60 * 1000);
 const CAPTCHA_VERIFY_PADDING = readPositiveInt(process.env.AUTH_CAPTCHA_VERIFY_PADDING, 5);
@@ -127,8 +126,23 @@ function pruneExpiredState() {
 const pruneTimer = setInterval(pruneExpiredState, 30_000);
 pruneTimer.unref();
 
+/**
+ * 验证码总开关（惰性读取）。
+ *
+ * 关键：必须在「用到时」才读 process.env，而不是模块加载期读成 const——
+ * 因为本模块在 ESM import 阶段就被加载，早于 riverMain 在模块体里加载 `.env`，
+ * 若在加载期读常量，`.env` 里的 AUTH_CAPTCHA_ENABLED 永远来不及生效（历史坑）。
+ * 惰性读取后：`.env` 的 `AUTH_CAPTCHA_ENABLED=false` 或启动 shell 环境变量都能正确关闭验证码。
+ *
+ * 取值：缺省 "true"（开）；显式 "false"/"0"/"off"/"no" 关闭，其余视为开。
+ */
+function captchaEnabled(): boolean {
+  const v = (process.env.AUTH_CAPTCHA_ENABLED ?? "true").trim().toLowerCase();
+  return !(v === "false" || v === "0" || v === "off" || v === "no");
+}
+
 function isCaptchaEnabledForScene(scene: string): boolean {
-  return CAPTCHA_ENABLED && Boolean(scene);
+  return captchaEnabled() && Boolean(scene);
 }
 
 async function ensureHelperBinary(): Promise<void> {

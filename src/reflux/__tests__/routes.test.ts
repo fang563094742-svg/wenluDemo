@@ -19,7 +19,7 @@ import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { requireAdmin } from "../../auth/middleware.js";
-import { signToken } from "../../auth/jwt.js";
+import { signToken, initJwtSecret } from "../../auth/jwt.js";
 import { createRefluxRouters, type RefluxRoutesDeps } from "../routes.js";
 
 // ── requireAdmin 单元测试（直接驱动中间件，不经网络） ──
@@ -89,6 +89,8 @@ describe("reflux 路由身份接入与 admin 保护", () => {
   const ADMIN_ID = "admin-user";
   const NORMAL_ID = "normal-user";
   const ORIG = process.env.WENLU_ADMIN_USER_IDS;
+  // 整合后 auth 收紧：jwt 不再有默认密钥，签发/校验前必须配置 JWT_SECRET（见 src/auth/jwt.ts）。
+  const ORIG_JWT = process.env.JWT_SECRET;
 
   let server: Server;
   let baseUrl: string;
@@ -99,6 +101,9 @@ describe("reflux 路由身份接入与 admin 保护", () => {
 
   beforeEach(async () => {
     process.env.WENLU_ADMIN_USER_IDS = ADMIN_ID;
+    // 为测试签发/校验 JWT 提供密钥（auth 收紧后无默认密钥，须显式初始化）。
+    process.env.JWT_SECRET = "test-jwt-secret-routes";
+    initJwtSecret();
 
     deps = {
       dispatcher: {
@@ -143,6 +148,8 @@ describe("reflux 路由身份接入与 admin 保护", () => {
 
   afterEach(async () => {
     process.env.WENLU_ADMIN_USER_IDS = ORIG;
+    if (ORIG_JWT === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = ORIG_JWT;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 

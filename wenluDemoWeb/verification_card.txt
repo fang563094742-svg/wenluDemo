@@ -1,0 +1,6 @@
+任务：写入 `wenluDemoWeb/index.html`
+目标状态：文件内容为 `测试`
+证据：已通过 `write_file` 写入路径 `D:\UsersData\Desktop\项目\demo\wenluDemo\wenluDemoWeb\index.html`
+成功判据：下次用户继续要求直接写文件/页面，或认可当前最小写入结果
+失败判据：用户指出内容不对、路径不对，或要求回退/改写为其他内容
+已知约束：当前命令执行层报 `spawn /bin/sh ENOENT`，不能依赖 shell 验证
