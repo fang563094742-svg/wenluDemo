@@ -72,6 +72,7 @@ export {
   screenOutboundText,
   isProtectedGuardWrite,
   gateUserDrivenAction,
+  gatePlatformMutation,
   isSensitiveReadTarget,
   SENSITIVE_FILE_PLACEHOLDER,
   scrubSecrets,

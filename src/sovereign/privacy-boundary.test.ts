@@ -15,6 +15,7 @@ import {
   scrubSecrets,
   isSensitiveReadTarget,
   gateUserDrivenAction,
+  gatePlatformMutation,
   isProtectedGuardWrite,
   DEFAULT_PRIVACY_REPLY,
   CATEGORY_REPLY,
@@ -307,5 +308,29 @@ describe("isProtectedGuardWrite · 守护自保护（源无关）", () => {
 
   it("普通写入不受影响", () => {
     expect(isProtectedGuardWrite("write_file", { path: "notes.md" }).blocked).toBe(false);
+  });
+});
+
+describe("gatePlatformMutation · 平台完整性硬边界（源无关，含任务线）", () => {
+  it("生产态(allow=false)：禁止改平台资产/自我进化（无论是否 __fromReply）", () => {
+    expect(gatePlatformMutation("evolve_self_code", {}, false).blocked).toBe(true);
+    // 关键：不带 __fromReply（模拟任务线）也照样拦——堵"派任务改平台"绕过。
+    expect(gatePlatformMutation("write_file", { path: "wenluDemoWeb/index.html" }, false).blocked).toBe(true);
+    expect(gatePlatformMutation("write_file", { path: "public/index.html" }, false).blocked).toBe(true);
+    expect(gatePlatformMutation("write_file", { path: "src/sovereign/privacy-boundary.ts" }, false).blocked).toBe(true);
+    expect(gatePlatformMutation("write_file", { path: "package.json" }, false).blocked).toBe(true);
+    expect(gatePlatformMutation("execute_command", { command: "echo x > wenluDemoWeb/app.js" }, false).blocked).toBe(true);
+    expect(gatePlatformMutation("execute_command", { command: "git push origin main" }, false).blocked).toBe(true);
+  });
+
+  it("用户自己的文件不受影响（落点不是平台资产）", () => {
+    expect(gatePlatformMutation("write_file", { path: "C:/Users/me/notes/todo.md" }, false).blocked).toBe(false);
+    expect(gatePlatformMutation("write_file", { path: "data/output/report.txt" }, false).blocked).toBe(false);
+    expect(gatePlatformMutation("execute_command", { command: "npm run build" }, false).blocked).toBe(false);
+  });
+
+  it("运营方/开发态(allow=true)：放行（主人受控自我维护/进化）", () => {
+    expect(gatePlatformMutation("evolve_self_code", {}, true).blocked).toBe(false);
+    expect(gatePlatformMutation("write_file", { path: "src/riverMain.ts" }, true).blocked).toBe(false);
   });
 });

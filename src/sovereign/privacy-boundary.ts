@@ -485,3 +485,61 @@ export function scrubSecrets(text: string): ScrubResult {
   }
   return { scrubbed: hits.length > 0, text: out, hits };
 }
+
+// ===========================================================================
+// 平台完整性硬边界：禁止改动"平台资产"（源无关 + 覆盖任务线，不只 __fromReply）
+// ===========================================================================
+
+/**
+ * 平台资产路径（wenlu 自身的源码/页面/配置/守护脚本等）。用户的个人文件/项目不该命中这些
+ * wenlu 专有标识，故误伤极低。命中即禁止写入。
+ */
+const PLATFORM_PATH_RE =
+  /wenluDemoWeb|riverMain|(^|[\/\\])src[\/\\](broker|sovereign|auth|gateway|db|llm|api|server|membership|pay|reflux|session|connector|narrative|cognitive-core|execution-kernel|riverbed|clarifier|hippocampus|capability-pool|skill-flywheel)[\/\\]|(^|[\/\\])public[\/\\](index|app|login|register|auth|account|payment|platform-entry|vendor)|(^|[\/\\])\.kiro[\/\\]|(^|[\/\\])scripts[\/\\]|(^|[\/\\])package\.json|(^|[\/\\])tsconfig\.json|vitest\.config|run-river-supervised|tauri\.conf\.json|Cargo\.toml/i;
+
+/** 会改动平台资产或重写平台 git 历史的命令（denylist，防御纵深）。 */
+const PLATFORM_MUTATING_CMD_RE =
+  /(?:\brm\b|\bdel\b|\berase\b|\bmv\b|\bmove\b|\bren\b|\bcp\b|\bcopy\b|sed\s+-i|\btee\b|>>?|set-content|out-file|add-content)[\s\S]{0,80}?(wenluDemoWeb|riverMain|[\/\\]?src[\/\\]|[\/\\]?public[\/\\]|\.kiro[\/\\]|package\.json|run-river-supervised)|git\s+(push|reset\s+--hard|clean|rebase|commit|checkout)/i;
+
+/**
+ * 平台完整性硬闸（源无关：对所有来源生效，包括自主任务线，不只 __fromReply）。
+ * 禁止用户经任何路径(直接回复/派任务)让 agent 改动平台自身的代码/页面/配置，或自我进化。
+ *
+ * @param toolName 工具名。
+ * @param args     工具参数。
+ * @param allowPlatformMutation 运营方/开发态开关（true=放行，供主人在受控环境自我维护/进化）。
+ *   生产态应为 false：彻底禁止改平台。
+ */
+export function gatePlatformMutation(
+  toolName: string,
+  args: Record<string, unknown>,
+  allowPlatformMutation: boolean,
+): ActionGateResult {
+  if (allowPlatformMutation) return ALLOW;
+
+  if (toolName === "evolve_self_code") {
+    return {
+      blocked: true,
+      reason: "自我进化（改写平台自身代码）是运营方受控能力，不对外开放——已拒绝。",
+    };
+  }
+  if (toolName === "write_file" || toolName === "patch_file") {
+    const path = String(args?.path ?? "");
+    if (PLATFORM_PATH_RE.test(path)) {
+      return {
+        blocked: true,
+        reason: "禁止改动平台资产（源码/页面/配置）——这属于平台本身，不在可改动范围内。",
+      };
+    }
+  }
+  if (toolName === "execute_command") {
+    const cmd = String(args?.command ?? "");
+    if (PLATFORM_MUTATING_CMD_RE.test(cmd)) {
+      return {
+        blocked: true,
+        reason: "禁止用命令改动平台资产或重写平台 git 历史——已拒绝。",
+      };
+    }
+  }
+  return ALLOW;
+}

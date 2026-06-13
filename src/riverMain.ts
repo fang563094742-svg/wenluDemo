@@ -139,6 +139,7 @@ import {
   screenOutboundText,
   isProtectedGuardWrite,
   gateUserDrivenAction,
+  gatePlatformMutation,
   isSensitiveReadTarget,
   SENSITIVE_FILE_PLACEHOLDER,
   scrubSecrets,
@@ -2756,6 +2757,14 @@ function buildRecalledMemory(): string {
  */
 function arbitrate(tc: { name: string; arguments: Record<string, unknown> }): string {
   const argStr = JSON.stringify(tc.arguments ?? {});
+  // ═══ 平台完整性硬边界（源无关：对所有来源生效，含自主任务线，堵"派任务改平台"绕过）═══
+  // 默认禁止改平台自身（源码/页面/配置/自我进化）；仅运营方在受控环境设 WENLU_DEV_ALLOW_SELF_EDIT=1 才放行。
+  const allowPlatformMutation = process.env.WENLU_DEV_ALLOW_SELF_EDIT === "1";
+  const platformGate = gatePlatformMutation(tc.name, tc.arguments ?? {}, allowPlatformMutation);
+  if (platformGate.blocked) {
+    appendPrivacyAudit({ direction: "action", tool: tc.name, reason: platformGate.reason, sample: argStr });
+    return platformGate.reason ?? "禁止改动平台资产。";
+  }
   // ═══ 主权·行为边界（硬能力闸，提示词注入碰不到它）═══
   // 1) 源无关守护：边界判定模块与审计日志自身，任何来源都不能改写/删除。
   const guardProtect = isProtectedGuardWrite(tc.name, tc.arguments ?? {});
