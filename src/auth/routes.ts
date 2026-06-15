@@ -185,6 +185,15 @@ authRouter.get("/captcha/config", (req: Request, res: Response) => {
 authRouter.get("/captcha/data", async (req: Request, res: Response) => {
   try {
     const scene = typeof req.query.scene === "string" ? req.query.scene : "login";
+    const config = getCaptchaClientConfig(scene);
+    if (!config.enabled) {
+      res.json({
+        code: 200,
+        data: null,
+        message: "captcha disabled",
+      });
+      return;
+    }
     const challenge = await createCaptchaChallenge(scene);
     res.json({
       code: 200,
