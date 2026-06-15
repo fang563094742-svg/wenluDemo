@@ -14,6 +14,7 @@ import {
   type MessageSource,
   DECISIONS_CHANNEL_ID,
   NOTIFICATIONS_CHANNEL_ID,
+  REFLECT_CHANNEL_ID,
   DEFAULT_USER_CHANNEL_ID,
 } from "./channel-types.js";
 
@@ -31,7 +32,7 @@ export function routeMessage(input: RouteInput): string {
       case "decision":
         return DECISIONS_CHANNEL_ID;
       case "notice":
-        return NOTIFICATIONS_CHANNEL_ID;
+        return input.source === "reflect" ? REFLECT_CHANNEL_ID : NOTIFICATIONS_CHANNEL_ID;
       case "user":
       case "wenlu":
         return input.currentUserChannelId && input.currentUserChannelId.trim()

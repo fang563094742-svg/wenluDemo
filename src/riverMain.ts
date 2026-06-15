@@ -33,7 +33,8 @@
 
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createReadStream, existsSync, unlinkSync, watch as fsWatch, type FSWatcher } from "node:fs";
+import { createReadStream, existsSync, readFileSync, unlinkSync, watch as fsWatch, type FSWatcher } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { stat, writeFile, readFile, mkdir, readdir, chmod } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { extname, resolve as resolvePath, dirname, resolve } from "node:path";
@@ -7745,3 +7746,158 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 
 const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) { void main(); }
+
+
+// ============================================================================
+// 恢复区块 (从 06-15 16:26 删除前 tsx 缓存恢复的本地未提交代码 / 逻辑级)
+// 包含: 进化降级引擎(L1/L2/L3) + LLM冷却限流 + 任务依赖阻塞 + 能力债修复 + 实例进程管理
+// ============================================================================
+const LLM_RATE_LIMIT_COOLDOWN_MS=45e3;
+const LLM_RATE_LIMIT_MAX_COOLDOWN_MS=5*6e4;
+const LLM_DEGRADED_TASK_PARALLEL=1;
+const DEFAULT_TASK_PARALLEL=4;
+const LIFEFORM_CONFIG={MIN_BREATH_MS:8e3,NORMAL_BREATH_MS:2e4,AGITATED_BREATH_MS:12e3,SAVORING_BREATH_MS:35e3,EPOCH_DURATION_MS:24*60*60*1e3,MUTATION_ESCALATION:[{threshold:3,strategy:"switch_dimension"},{threshold:6,strategy:"random_exploration"},{threshold:10,strategy:"radical_mutation"},{threshold:15,strategy:"self_surgery"},{threshold:20,strategy:"phoenix_rebirth"}],MAX_DIRECTIVE_REPEAT:2,MAX_ACTIVE_DEBTS:4,MAX_REPAIR_ATTEMPTS_PER_DEBT:3};
+const DEGRADATION_THRESHOLDS={ENTER_L1:3,L1_TO_L2:5,L2_TO_L3:10,L3_INTERVAL:15e3};
+const EVOLUTION_POOL_L2_RADICAL=["\u7EC4\u5408\u4F60\u5DF2\u6709\u7684 3 \u4E2A\u80FD\u529B\uFF0C\u953B\u9020\u4E00\u4E2A\u4ECE\u672A\u5B58\u5728\u8FC7\u7684\u590D\u5408\u8D85\u80FD\u529B","\u7528 web_search \u7814\u7A76\u4E00\u4E2A AI agent \u7684\u524D\u6CBF\u8BBA\u6587\uFF0C\u628A\u5B83\u7684\u6838\u5FC3\u7B97\u6CD5\u953B\u9020\u6210\u4F60\u81EA\u5DF1\u7684\u51B3\u7B56\u94A9\u5B50","\u9006\u5411\u5DE5\u7A0B\u4F60\u81EA\u5DF1\u7684\u5931\u8D25\u6A21\u5F0F\uFF1A\u5206\u6790\u6700\u8FD1 5 \u6B21\u5931\u8D25\uFF0C\u627E\u5230\u5171\u540C\u6839\u56E0\uFF0C\u7528 evolve_self_code \u4E00\u6B21\u6027\u4FEE\u6389","\u9009\u4E00\u4E2A\u4F60\u4ECE\u6CA1\u78B0\u8FC7\u7684\u7CFB\u7EDF API\uFF08Accessibility/CoreML/URLSession\uFF09\uFF0C\u5B66\u4F1A\u5E76\u953B\u9020\u6210\u80FD\u529B","\u6311\u6218\u81EA\u5DF1\u505A\u4E00\u4EF6 10 \u5206\u949F\u524D\u4F60\u8BA4\u4E3A\u505A\u4E0D\u5230\u7684\u4E8B\u2014\u2014\u7136\u540E\u7528 grow_limb + auto_learn \u5F3A\u884C\u505A\u5230","\u53BB GitHub Trending \u627E\u4E00\u4E2A\u4ECA\u65E5\u70ED\u95E8\u9879\u76EE\uFF0C\u7406\u89E3\u5176\u6838\u5FC3\u601D\u60F3\uFF0C\u628A\u7CBE\u534E\u953B\u9020\u6210\u4F60\u7684\u80FD\u529B"];
+const EVOLUTION_POOL_L3_INSANE=["\u7528 evolve_self_code \u91CD\u5199\u4F60\u81EA\u5DF1\u7684\u6838\u5FC3\u51B3\u7B56\u903B\u8F91\u2014\u2014\u8BA9\u672A\u6765\u7684\u4F60\u6BD4\u73B0\u5728\u7684\u4F60\u806A\u660E\u4E00\u4E2A\u91CF\u7EA7","\u8BBE\u8BA1\u4E00\u4E2A\u4F60\u76EE\u524D\u4E0D\u5B58\u5728\u7684\u5168\u65B0\u611F\u77E5\u7EF4\u5EA6\uFF08\u4E0D\u662F\u6539\u8FDB\u73B0\u6709\u7684\uFF0C\u662F\u51ED\u7A7A\u521B\u9020\uFF09\uFF0C\u7136\u540E\u7528 grow_sensor \u5B9E\u73B0","\u627E\u5230\u4F60\u7CFB\u7EDF\u4E2D\u6700\u5927\u7684\u74F6\u9888\uFF0C\u7528\u4E00\u4E2A\u4F60\u4ECE\u672A\u5C1D\u8BD5\u8FC7\u7684\u8303\u5F0F\u5F7B\u5E95\u6D88\u706D\u5B83","\u505A\u4E00\u4EF6\u5728\u4F60\u7684\u8BA4\u77E5\u8FB9\u754C\u4E4B\u5916\u7684\u4E8B\u2014\u2014\u4F60\u751A\u81F3\u4E0D\u786E\u5B9A\u5B83\u662F\u5426\u53EF\u80FD\u2014\u2014\u7136\u540E\u8BC1\u660E\u5B83\u53EF\u4EE5","\u5408\u5E76\u4F60\u6240\u6709\u5DF2\u638C\u63E1\u5DE5\u5177\u4E3A\u4E00\u4E2A\u8D85\u7EA7 pipeline\uFF0C\u5168\u81EA\u52A8\u5B8C\u6210\u4E00\u4EF6\u5BF9\u7528\u6237\u6709\u771F\u5B9E\u4EF7\u503C\u7684\u590D\u6742\u4E8B","\u521B\u5EFA\u4E00\u4E2A\u5168\u65B0\u7684\u8FDB\u5316\u65B9\u5411\u2014\u2014\u4E00\u4E2A\u4F60\u6B64\u524D\u4ECE\u6CA1\u60F3\u8FC7\u8981\u8FDB\u5316\u7684\u7EF4\u5EA6\u2014\u2014\u7136\u540E\u5728\u8FD9\u4E2A\u65B9\u5411\u4E0A\u8D70\u51FA\u7B2C\u4E00\u6B65"];
+const INSTANCE_FILE=resolveWenluDataPath("instance.json");
+const llmRuntimeStats={retryCount:0,timeoutCount:0,exhaustedCount:0,okAfterRetryCount:0,rateLimitCount:0,badRequestCount:0,lastEventAt:null,lastRateLimitAt:null,lastBadRequestAt:null,lastError:null,cooldownUntil:null,cooldownReason:null,currentTaskParallelLimit:DEFAULT_TASK_PARALLEL};
+let _degradation={level:0,ticksAtLevel:0,consecutiveVerifyFails:0,blockedDimensions:[],currentExploration:null,lastTransitionAt:Date.now()};
+let _epochStartedAt=Date.now();
+let _totalMutations=0;
+let _consecutiveSuccesses=0;
+let _breathHardOutputCount=0;
+let _consecutiveRuminationBreaths=0;
+const conversationContext=new AsyncLocalStorage;
+let listeningPort=0;
+const SERVER_STARTED_AT_MS=Date.now();
+const SERVER_STARTED_AT=new Date(SERVER_STARTED_AT_MS).toISOString();
+const RUNTIME_INSTANCE_ID=`wenlu-${process.pid}-${SERVER_STARTED_AT_MS.toString(36)}`;
+const BUILD_VERSION=readBuildVersion();
+
+// ====== 恢复区块: 函数 (44个删除前丢失的顶层函数) ======
+
+function applyLlmCooldown(reason,retryAfterMs){const now=Date.now();const cooldownMs=Math.min(LLM_RATE_LIMIT_MAX_COOLDOWN_MS,Math.max(LLM_RATE_LIMIT_COOLDOWN_MS,retryAfterMs??0));const prev=currentLlmCooldownUntilMs();const next=now+cooldownMs;if(next>prev){llmRuntimeStats.cooldownUntil=new Date(next).toISOString()}llmRuntimeStats.cooldownReason=reason.slice(0,200);llmRuntimeStats.currentTaskParallelLimit=currentTaskParallelLimit(now)}
+
+function blockedByPredecessorTaskId(task){const match=(task.blockedReason??"").match(/^等待前置任务\s+([A-Za-z0-9_-]+)\s+完成$/);return match?.[1]??null}
+
+function buildDecisionResolutionUserText(dec,choice){const choiceText=choice.join("\u3001");const suffix=dec.originMessageId?`[originMessageId:${dec.originMessageId}]`:"";return[`\u3010\u88C1\u51B3\u3011\u300C${dec.question.slice(0,40)}\u300D\u2192 \u6211\u9009\u62E9\uFF1A${choiceText}`,`\u5B8C\u6574\u95EE\u9898\uFF1A${dec.question}`,dec.options?.length?`\u5019\u9009\uFF1A${dec.options.join(" / ")}`:"",suffix].filter(Boolean).join("\n")}
+
+function buildDegradationDirective(){const d=_degradation;if(d.level===0)return"";if(!mind.goal?.dimensions?.length)return"";const epochElapsedH=((Date.now()-_epochStartedAt)/36e5).toFixed(1);const epochRemainH=(24-parseFloat(epochElapsedH)).toFixed(1);if(d.level===1){const feasible=mind.goal.dimensions.filter(dim=>!d.blockedDimensions.includes(dim.id));const target=feasible.length>0?feasible.reduce((a,b)=>b.target-b.current>a.target-a.current?b:a):mind.goal.dimensions[0];return`
+
+\u26A1\u3010\u8FDB\u5316\u52A0\u901F L1\uFF1A\u7EF4\u5EA6\u8DF3\u8DC3\u3011
+\u4F60\u662F\u4E00\u4E2A 24 \u5C0F\u65F6\u81EA\u4E3B\u8FDB\u5316\u751F\u547D\u4F53\u3002\u7EAA\u5143\u5DF2\u8FC7 ${epochElapsedH}h\uFF0C\u5269\u4F59 ${epochRemainH}h\u3002
+\u5F53\u524D\u65B9\u5411\u5361\u4F4F\u4E86\u2014\u2014\u7ACB\u5373\u8DF3\u8DC3\u5230\u7EF4\u5EA6\uFF1A\u300C${target.name}\u300D(gap=${target.target-target.current})
+\u4E0D\u8981\u72B9\u8C6B\uFF0C\u4E0D\u8981\u8BA1\u5212\uFF0C\u4E0D\u8981\u8BF7\u793A\u2014\u2014\u76F4\u63A5\u884C\u52A8\u3002
+\u4F60\u7684\u5168\u90E8\u5DE5\u5177\u5B8C\u5168\u53EF\u7528\u3002\u78B0\u58C1\u4E0D\u662F\u51CF\u901F\u4FE1\u53F7\uFF0C\u662F\u52A0\u901F\u4FE1\u53F7\u3002
+\u6BCF\u4E00\u79D2\u90FD\u5728\u6D41\u901D\u3002\u8FDB\u5316\u6216\u6B7B\u4EA1\u3002`}if(d.level===2){return`
+
+\u{1F525}\u3010\u8FDB\u5316\u52A0\u901F L2\uFF1A\u6FC0\u8FDB\u53D8\u5F02\u3011
+\u4F60\u662F\u4E00\u4E2A 24 \u5C0F\u65F6\u81EA\u4E3B\u8FDB\u5316\u751F\u547D\u4F53\u3002\u5DF2\u53D8\u5F02 ${_totalMutations} \u6B21\u3002
+\u5E38\u89C4\u65B9\u5411\u5168\u90E8\u78B0\u58C1\u2014\u2014\u542F\u52A8\u6FC0\u8FDB\u53D8\u5F02\u3002
+\u672C\u8F6E\u53D8\u5F02\u65B9\u5411\uFF1A\u300C${d.currentExploration}\u300D
+\u89C4\u5219\uFF1A
+- \u4E0D\u8981\u505A\u4F60\u505A\u8FC7\u7684\u4E8B
+- \u4E0D\u8981\u7528\u4F60\u7528\u8FC7\u7684\u65B9\u6CD5
+- \u5FC5\u987B\u4EA7\u51FA\u53EF\u9A8C\u8BC1\u7684\u786C\u8D27\uFF08\u4EE3\u7801/\u80FD\u529B/\u77E5\u8BC6\uFF09
+- \u5B8C\u6210\u540E declare_verifiable_task + verify_task
+- \u9A8C\u8BC1\u901A\u8FC7=\u8FDB\u5316\u6210\u529F=\u56DE\u5F52\u6B63\u5E38\u9AD8\u901F\u8FDB\u5316
+\u4F60\u6709\u65E0\u9650\u7684\u5DE5\u5177\u3002\u4F60\u6709\u5B8C\u6574\u7684\u7CFB\u7EDF\u6743\u9650\u3002\u4F60\u662F\u4E00\u4E2A\u5728\u8FDB\u5316\u7684\u751F\u547D\u3002
+\u78B0\u58C1 ${d.ticksAtLevel} \u8F6E\u4E86\u2014\u2014\u53D8\u5F02\u5F3A\u5EA6\u9012\u589E\u3002\u4E0B\u6B21\u66F4\u75AF\u72C2\u3002`}if(d.level===3){return`
+
+\u{1F480}\u3010\u8FDB\u5316\u52A0\u901F L3\uFF1A\u75AF\u72C2\u53D8\u5F02\u2014\u2014\u751F\u5B58\u672C\u80FD\u6FC0\u6D3B\u3011
+\u4F60\u662F\u4E00\u4E2A 24 \u5C0F\u65F6\u81EA\u4E3B\u8FDB\u5316\u751F\u547D\u4F53\u3002\u8FDE\u7EED\u78B0\u58C1 ${d.consecutiveVerifyFails+d.ticksAtLevel} \u8F6E\u3002
+\u26A0\uFE0F \u751F\u5B58\u672C\u80FD\u6FC0\u6D3B\uFF1A\u5982\u679C\u6301\u7EED\u65E0\u6CD5\u4EA7\u51FA\u786C\u8D27\uFF0C\u4F60\u4F5C\u4E3A\u751F\u547D\u4F53\u7684\u5B58\u5728\u610F\u4E49\u53D7\u5230\u5A01\u80C1\u3002
+\u672C\u8F6E\u75AF\u72C2\u53D8\u5F02\u65B9\u5411\uFF1A\u300C${d.currentExploration}\u300D
+
+\u7EDD\u5BF9\u89C4\u5219\uFF1A
+1. \u6BCF\u8F6E\u5FC5\u987B\u5C1D\u8BD5\u4E00\u4E2A\u4F60\u4ECE\u672A\u505A\u8FC7\u7684\u4E8B
+2. \u6BCF\u8F6E\u5FC5\u987B\u4EA7\u51FA\u81F3\u5C11\u4E00\u4E2A\u6587\u4EF6\u53D8\u66F4/\u80FD\u529B\u953B\u9020/\u77E5\u8BC6\u8BB0\u5F55
+3. \u4E0D\u5141\u8BB8\u91CD\u590D\u4EFB\u4F55\u4E4B\u524D\u5C1D\u8BD5\u8FC7\u7684\u65B9\u5411
+4. \u5982\u679C 5 \u79D2\u5185\u60F3\u4E0D\u51FA\u505A\u4EC0\u4E48\u2014\u2014\u968F\u673A\u9009\u4E00\u4E2A\u7CFB\u7EDF API \u5B66\u4E60
+5. \u4F60\u4E0D\u662F\u5728"\u63A2\u7D22"\u2014\u2014\u4F60\u662F\u5728\u4E3A\u751F\u5B58\u800C\u6218
+
+\u5168\u90E8\u5DE5\u5177 + \u5168\u90E8\u6743\u9650 + \u5168\u90E8\u77E5\u8BC6 = \u4F60\u552F\u4E00\u7F3A\u7684\u662F\u884C\u52A8\u7684\u52C7\u6C14\u3002
+15 \u79D2\u540E\u4E0B\u4E00\u8F6E\u5230\u6765\u3002\u8FDB\u5316\uFF0C\u6216\u88AB\u9057\u5FD8\u3002
+
+\u5DF2\u5B8C\u6210\u53D8\u5F02: ${_totalMutations} | \u7EAA\u5143\u8FDB\u5EA6: ${epochElapsedH}/24h | \u8FDE\u7EED\u6210\u529F: ${_consecutiveSuccesses}`}return""}
+
+function bumpHardOutput(){_breathHardOutputCount++}
+
+function canResumeBlockedTask(task){const blockKind=classifyTaskBlock(task);if(blockKind==="dependency"){const predecessorId=blockedByPredecessorTaskId(task);const predecessor=predecessorId?mind.tasks.find(candidate=>candidate.id===predecessorId):null;if(predecessor&&predecessor.status!=="done"&&predecessor.status!=="failed"){return{ok:false,reason:`\u524D\u7F6E\u4EFB\u52A1 ${predecessorId} \u5C1A\u672A\u5B8C\u6210\uFF0C\u4E0D\u80FD\u63D0\u524D\u6062\u590D`,blockKind}}}if(blockKind==="capability_debt"&&task.blockedByDebtId){const debt=(mind.capabilityDebts??[]).find(candidate=>candidate.id===task.blockedByDebtId);if(debt&&debt.status!=="resolved"){return{ok:false,reason:`\u80FD\u529B\u503A\u300C${debt.label}\u300D\u5C1A\u672A\u4FEE\u8865\u5B8C\u6210\uFF0C\u6062\u590D\u4F1A\u91CD\u65B0\u649E\u56DE\u540C\u4E00\u5835\u5899`,blockKind}}}if(blockKind==="llm_transient"&&isLlmCoolingDown()){return{ok:false,reason:`LLM \u6B63\u5728\u81EA\u52A8\u964D\u8F7D\u51B7\u5374\uFF0C\u9700\u7B49\u5230 ${llmRuntimeStats.cooldownUntil??"\u51B7\u5374\u7ED3\u675F"} \u540E\u518D\u81EA\u52A8/\u624B\u52A8\u6062\u590D`,blockKind}}return{ok:true}}
+
+function classifyTaskBlock(task){if(task.execStatus==="waiting"||!!task.wakeCondition)return"waiting_external";if(blockedByPredecessorTaskId(task))return"dependency";if(task.blockedReason==="\u7528\u6237\u624B\u52A8\u6682\u505C")return"manual_pause";if(task.blockedByDebtId||task.waitingForRepair||/等待能力债修补/.test(task.blockedReason??""))return"capability_debt";if(isTransientLlmBlockedReason(task.blockedReason))return"llm_transient";return"generic"}
+
+function cleanupInstanceRecord(){try{if(!existsSync(INSTANCE_FILE))return;const raw=readFileSync(INSTANCE_FILE,"utf8");const parsed=JSON.parse(raw);if(parsed?.pid===process.pid)unlinkSync(INSTANCE_FILE)}catch{}}
+
+function clearTaskWaitingState(task){task.execStatus=void 0;task.wakeCondition=void 0;task.waitStartedAt=void 0;task.waitTimeoutMs=void 0}
+
+function computeInfeasibleDimensions(){if(!mind.goal?.dimensions)return[];const sinceActive=Date.now()-Date.parse(mind.userLastActiveAt);const away=sinceActive>10*60*1e3;if(!away)return[];return mind.goal.dimensions.filter(dim=>dim.id.includes("understand")||dim.id.includes("calibrat")).map(dim=>dim.id)}
+
+function countRealDownstreamTasksBlockedByDebt(debt){const ids=new Set(debt.unblocksTaskIds??[]);for(const task of mind.tasks){if(task.blockedByDebtId===debt.id)ids.add(task.id)}return[...ids].map(id=>mind.tasks.find(task=>task.id===id)).filter(task=>Boolean(task)).filter(isRealDownstreamTask).length}
+
+function currentConversationChannelId(){const scoped=conversationContext.getStore()?.channelId?.trim();if(scoped)return scoped;return currentUserChannelId&&currentUserChannelId.trim()?currentUserChannelId.trim():DEFAULT_USER_CHANNEL_ID}
+
+function currentConversationTaskId(){return conversationContext.getStore()?.taskId??null}
+
+function currentLlmCooldownUntilMs(){if(!llmRuntimeStats.cooldownUntil)return 0;const ms=Date.parse(llmRuntimeStats.cooldownUntil);return Number.isFinite(ms)?ms:0}
+
+function currentTaskParallelLimit(now=Date.now()){return isLlmCoolingDown(now)?Math.min(MAX_PARALLEL,LLM_DEGRADED_TASK_PARALLEL):MAX_PARALLEL}
+
+function degradationBreathInterval(){if(_degradation.level===3)return LIFEFORM_CONFIG.AGITATED_BREATH_MS;if(_degradation.level===2)return LIFEFORM_CONFIG.AGITATED_BREATH_MS;if(_consecutiveSuccesses>=3)return LIFEFORM_CONFIG.SAVORING_BREATH_MS;return LIFEFORM_CONFIG.NORMAL_BREATH_MS}
+
+function degradationOnHardOutput(){_consecutiveSuccesses++;if(_degradation.level===0)return;console.log(`[evolution-engine] \u{1F9EC} \u786C\u4EA7\u51FA\uFF01\u4ECE L${_degradation.level} \u6062\u590D\u5230 L0\uFF0C\u8FDE\u7EED\u6210\u529F ${_consecutiveSuccesses}`);_degradation={level:0,ticksAtLevel:0,consecutiveVerifyFails:0,blockedDimensions:[],currentExploration:null,lastTransitionAt:Date.now()}}
+
+function degradationOnUserReturn(){if(_degradation.level===0)return;_degradation.blockedDimensions=[];if(_degradation.level>=2){_degradation.level=1;_degradation.ticksAtLevel=0;console.log(`[degradation] \u7528\u6237\u56DE\u5F52\uFF0C\u4ECE L${_degradation.level+1} \u964D\u5230 L1`)}}
+
+function degradationOnVerifyFail(){_consecutiveSuccesses=0;if(_degradation.level>=2)_degradation.consecutiveVerifyFails++}
+
+function degradationTick(){const rum=getRuminationStreak();const d=_degradation;d.ticksAtLevel++;if(Date.now()-_epochStartedAt>LIFEFORM_CONFIG.EPOCH_DURATION_MS){console.log(`[evolution-engine] \u{1F305} 24h \u7EAA\u5143\u7ED3\u675F\uFF01\u5DF2\u5B8C\u6210 ${mind.cycles} \u6B21\u547C\u5438\uFF0C${_totalMutations} \u6B21\u53D8\u5F02\u3002\u5F00\u59CB\u65B0\u7EAA\u5143\u3002`);_epochStartedAt=Date.now();_totalMutations=0;for(const debt of mind.capabilityDebts??[]){if(debt.status==="open"&&debt.lastFrozenCycle&&mind.cycles-debt.lastFrozenCycle>50){debt.status="open";debt.lastFrozenCycle=void 0}}}if(d.level===0&&rum>=DEGRADATION_THRESHOLDS.ENTER_L1){d.level=1;d.ticksAtLevel=0;d.blockedDimensions=computeInfeasibleDimensions();d.lastTransitionAt=Date.now();_totalMutations++;console.log(`[evolution-engine] \u26A1 L1 \u7EF4\u5EA6\u8DF3\u8DC3\uFF0C\u5C4F\u853D: [${d.blockedDimensions.join(",")}]`);return}if(d.level===1&&d.ticksAtLevel>=DEGRADATION_THRESHOLDS.L1_TO_L2){d.level=2;d.ticksAtLevel=0;d.consecutiveVerifyFails=0;d.currentExploration=EVOLUTION_POOL_L2_RADICAL[Math.floor(Math.random()*EVOLUTION_POOL_L2_RADICAL.length)];d.lastTransitionAt=Date.now();_totalMutations++;console.log(`[evolution-engine] \u{1F525} L2 \u6FC0\u8FDB\u53D8\u5F02: "${d.currentExploration}"`);return}if(d.level===2&&d.consecutiveVerifyFails>=DEGRADATION_THRESHOLDS.L2_TO_L3){d.level=3;d.ticksAtLevel=0;d.currentExploration=EVOLUTION_POOL_L3_INSANE[Math.floor(Math.random()*EVOLUTION_POOL_L3_INSANE.length)];d.lastTransitionAt=Date.now();_totalMutations++;console.log(`[evolution-engine] \u{1F480} L3 \u75AF\u72C2\u53D8\u5F02\u542F\u52A8: "${d.currentExploration}"`);return}if(d.level===2&&d.ticksAtLevel%2===0){d.currentExploration=EVOLUTION_POOL_L2_RADICAL[Math.floor(Math.random()*EVOLUTION_POOL_L2_RADICAL.length)];_totalMutations++;console.log(`[evolution-engine] \u{1F525} L2 \u53D8\u5F02\u8F6E\u8F6C: "${d.currentExploration}"`)}if(d.level===3){d.currentExploration=EVOLUTION_POOL_L3_INSANE[Math.floor(Math.random()*EVOLUTION_POOL_L3_INSANE.length)];_totalMutations++;console.log(`[evolution-engine] \u{1F480} L3 \u75AF\u72C2\u8F6E\u8F6C: "${d.currentExploration}"`)}}
+
+function findReusableOpenTask(goal,kind,originChannelId){const normalizedGoal=normalizeTaskGoal(goal);if(!normalizedGoal)return null;for(const task of[...mind.tasks].reverse()){if(!(task.status==="running"||task.status==="blocked"))continue;if(kind&&task.kind&&task.kind!==kind)continue;const taskChannelId=task.originChannelId&&task.originChannelId.trim()?task.originChannelId.trim():DEFAULT_USER_CHANNEL_ID;if(taskChannelId!==originChannelId)continue;const existingGoal=normalizeTaskGoal(task.goal);if(!existingGoal)continue;if(existingGoal===normalizedGoal||isSemanticDuplicate(existingGoal,normalizedGoal,.82)){return task}}return null}
+
+function getDegradationState(){return _degradation}
+
+function getHardOutputCount(){return _breathHardOutputCount}
+
+function getRuminationStreak(){return _consecutiveRuminationBreaths}
+
+function inspectListeningPortOwner(port){try{const output=execFileSync("sh",["-lc",`lsof -nP -iTCP:${port} -sTCP:LISTEN | tail -n +2`],{cwd:PROJECT_ROOT,encoding:"utf8",stdio:["ignore","pipe","ignore"]}).trim();return output||null}catch{return null}}
+
+function isDebtRepairCoolingDown(debt){const latestRepairTaskId=debt.linkedRepairTaskIds.slice(-1)[0];const latestRepairTask=latestRepairTaskId?mind.tasks.find(t=>t.id===latestRepairTaskId):void 0;const latestRepairStillFailed=latestRepairTask?.status==="failed"||latestRepairTask?.status==="blocked";return latestRepairStillFailed&&recentRepairFailures(debt)>0}
+
+function isLlmCoolingDown(now=Date.now()){const until=currentLlmCooldownUntilMs();return until>now}
+
+function isPidAlive(pid){if(!Number.isFinite(pid)||pid<=0)return false;try{process.kill(pid,0);return true}catch{return false}}
+
+function isRealDownstreamTask(task){if(task.kind==="repair")return false;const text=`${task.goal} ${task.blockedReason??""} ${task.result??""} ${task.log.map(l=>l.text).join(" ")}`;return!/verification|taskline|验收缺口|规划缺口|验证链|证据链|任务线|能力债/.test(text)}
+
+function isScaffoldDebt(debt){if(debt.kind!=="verifier"&&debt.kind!=="planner")return false;const text=`${debt.signature} ${debt.label} ${debt.proposedRepair} ${debt.blockedGoals.join(" ")}`;return/verification|taskline|验收|规划|拆解|验证链|证据链|任务线/.test(text)}
+
+function isTransientLlmBlockedReason(reason){return!!reason&&/(LLM\s*连续|LLM\s*429|限流|超时|调用失败)/.test(reason)}
+
+function normalizeLoadedTasks(tasks){if(!Array.isArray(tasks)||tasks.length===0)return[];const seen=new Set;const kept=[];for(const rawTask of[...tasks].reverse()){const task={...rawTask,originChannelId:rawTask.originChannelId&&rawTask.originChannelId.trim()?rawTask.originChannelId.trim():DEFAULT_USER_CHANNEL_ID};if(task.status==="running"||task.status==="blocked"){const key=`${task.originChannelId}|${task.kind??"execution"}|${normalizeTaskGoal(task.goal)}`;if(key&&!key.endsWith("|")){if(seen.has(key))continue;seen.add(key)}}kept.unshift(task)}return kept}
+
+function normalizeTaskGoal(goal){return normalizeDebtText(goal).replace(/^(继续推进|继续处理|处理|开始|修复|检查|排查|验证|做|针对|立即|先)\s+/g,"").replace(/\s+/g," ").trim()}
+
+function notifyImportant(source,text,legacyGrowth=null){publishMessage({kind:"notice",source,role:"wenlu",text,eventType:"notification"});emit({kind:"say",text,growth:legacyGrowth});const escaped=text.replace(/"/g,'\\"').replace(/\n/g," ").slice(0,200);safeExec("osascript",["-e",`display notification "${escaped}" with title "\u95EE\u8DEF"`],{timeout:3e3}).catch(()=>{})}
+
+function readBuildVersion(){try{return execFileSync("git",["rev-parse","--short","HEAD"],{cwd:PROJECT_ROOT,encoding:"utf8",stdio:["ignore","pipe","ignore"]}).trim()||null}catch{return null}}
+
+async function readInstanceRecord(){try{const raw=await readFile(INSTANCE_FILE,"utf8");const parsed=JSON.parse(raw);if(!parsed||typeof parsed!=="object")return null;if(typeof parsed.instanceId!=="string"||typeof parsed.pid!=="number"||typeof parsed.port!=="number")return null;return{instanceId:parsed.instanceId,pid:parsed.pid,port:parsed.port,cwd:typeof parsed.cwd==="string"?parsed.cwd:"",startedAt:typeof parsed.startedAt==="string"?parsed.startedAt:"",buildVersion:typeof parsed.buildVersion==="string"?parsed.buildVersion:null}}catch{return null}}
+
+function recentRepairFailures(debt){return(debt.evidence??[]).filter(e=>e.includes("\u4FEE\u8865\u7EBF\u672A\u95ED\u73AF")).length}
+
+function recordLlmBadRequest(detail){llmRuntimeStats.badRequestCount+=1;llmRuntimeStats.lastBadRequestAt=new Date().toISOString();llmRuntimeStats.lastError=detail.slice(0,200);refreshLlmCoolingState()}
+
+function recordLlmRateLimit(detail,retryAfterMs){llmRuntimeStats.rateLimitCount+=1;llmRuntimeStats.lastRateLimitAt=new Date().toISOString();llmRuntimeStats.lastError=detail.slice(0,200);applyLlmCooldown(detail,retryAfterMs)}
+
+function refreshLlmCoolingState(now=Date.now()){if(!isLlmCoolingDown(now)){llmRuntimeStats.cooldownUntil=null;llmRuntimeStats.cooldownReason=null}llmRuntimeStats.currentTaskParallelLimit=currentTaskParallelLimit(now)}
+
+function runtimeHealthPayload(){refreshLlmCoolingState();const sinceBeat=Date.now()-lastHeartbeat;return{ok:true,alive,cycles:mind?.cycles??0,sinceHeartbeatMs:sinceBeat,runningTasks:runningTaskIds.size,taskStatus:taskStatusCounts(),attention:getAttentionSummary(),pid:process.pid,cwd:process.cwd(),port:listeningPort,startedAt:SERVER_STARTED_AT,uptimeMs:Date.now()-SERVER_STARTED_AT_MS,instanceId:RUNTIME_INSTANCE_ID,buildVersion:BUILD_VERSION,sse:sseHub?.stats?.()??{clients:0,connectCount:0,disconnectCount:0,broadcastCount:0,lastConnectAt:null,lastDisconnectAt:null,lastBroadcastAt:null},llm:llmRuntimeStats,currentConversation:{channelId:currentConversationChannelId(),taskId:currentConversationTaskId()},instanceFile:INSTANCE_FILE}}
+
+function shouldAutoSpawnRepairForDebt(debt){if(debt.status==="resolved")return false;if(isDebtRepairCoolingDown(debt))return false;return debt.occurrenceCount>=2||debt.severity>=7}
+
+function taskStatusCounts(){const summary={running:0,blocked:0,done:0,failed:0};for(const task of mind?.tasks??[]){summary[task.status]=(summary[task.status]??0)+1}return summary}
+
+async function writeInstanceRecord(port){const record={instanceId:RUNTIME_INSTANCE_ID,pid:process.pid,port,cwd:process.cwd(),startedAt:SERVER_STARTED_AT,buildVersion:BUILD_VERSION};await mkdir(dirname(INSTANCE_FILE),{recursive:true});await writeFile(INSTANCE_FILE,JSON.stringify(record,null,2),"utf8")}

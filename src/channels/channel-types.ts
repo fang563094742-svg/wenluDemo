@@ -18,6 +18,8 @@ export const CHANNELS_SCHEMA_VERSION = 1;
 /** 固定系统频道 id（单例）。 */
 export const DECISIONS_CHANNEL_ID = "decisions";
 export const NOTIFICATIONS_CHANNEL_ID = "notifications";
+/** 反思/回流专用频道 id。本地未提交代码引入，从删除前（06-15 16:26）缓存恢复。 */
+export const REFLECT_CHANNEL_ID = "reflect";
 /** 默认迁移目标用户频道 id。 */
 export const DEFAULT_USER_CHANNEL_ID = "chat_default";
 
@@ -73,6 +75,14 @@ export interface PendingDecision {
   resolvedChoice?: string[];
   createdAt: string;
   resolvedAt?: string;
+  /** 发起裁决的来源频道（多用户隔离用）。本地未提交代码引入，从删除前缓存恢复。 */
+  originChannelId?: string;
+  /** 发起裁决的来源消息 id。本地未提交代码引入，从删除前缓存恢复。 */
+  originMessageId?: string;
+  /** 结算时回填的回流频道 id（= originChannelId）。本地未提交代码引入，从删除前缓存恢复。 */
+  reflowChannelId?: string;
+  /** 结算时回填的回流消息 id（= originMessageId）。本地未提交代码引入，从删除前缓存恢复。 */
+  reflowMessageId?: string;
 }
 
 /** 挂在 Mind 上的频道层增量（认知层不在此，全局共享）。 */
