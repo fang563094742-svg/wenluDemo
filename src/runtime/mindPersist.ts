@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
+import { scrubSecrets } from "../sovereign/privacy-boundary.js";
 
 const CHANNELS_BACKUP_DIR = ".mind-backups";
 const BACKUP_MIN_INTERVAL_MS = 60_000;
@@ -211,10 +212,10 @@ export async function persistMindJson(
       }
     }
   }
-  await writeAtomicJson(
-    mindFile,
-    JSON.stringify(mergedPayload ?? payload, null, 2),
-  );
+  // 写盘前对 JSON 序列化结果统一过 scrubSecrets，挡住 LLM 误把 .env/token/api-key 写进 mind 的情况。
+  const rawJson = JSON.stringify(mergedPayload ?? payload, null, 2);
+  const scrubbed = scrubSecrets(rawJson);
+  await writeAtomicJson(mindFile, scrubbed.text);
   return {
     backedUpTo,
     channelCountBefore: cmp.beforeCount,

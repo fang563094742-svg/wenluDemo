@@ -27,6 +27,7 @@
  */
 
 import type { ServerResponse } from "node:http";
+import { screenOutboundText } from "../sovereign/privacy-boundary.js";
 
 import type {
   OrchestratorEvent,
@@ -286,7 +287,13 @@ export class SseHub {
    */
   broadcast(frame: SseFrame): void {
     if (this.clients.size === 0) return;
-    const text = serializeSseFrame(frame.event, frame.data);
+    // SSE 双保险：对最终 JSON 字符串再过一次 screenOutboundText, 兜住源头未筛查的载荷。
+    const rawText = serializeSseFrame(frame.event, frame.data);
+    const screened = screenOutboundText(rawText);
+    const text = screened.leaked ? serializeSseFrame(frame.event, { redacted: true, message: screened.safeText }) : rawText;
+    if (screened.leaked) {
+      console.warn(`[sse:redacted] event=${frame.event} matched=${screened.matched ?? "?"}`);
+    }
     this.broadcastCount += 1;
     this.lastBroadcastAt = new Date().toISOString();
     // 复制成数组再迭代：注销会修改底层 Set，避免迭代期改集合。
