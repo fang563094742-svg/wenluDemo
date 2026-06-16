@@ -23,6 +23,7 @@ import {
   findUserByUsername,
   createPasswordUser,
   ensureExternalMirrorUser,
+  addUserBusinessMessageCredits,
 } from "../db/userRepo.js";
 import { transaction } from "../db/pool.js";
 import { inheritCapabilities } from "../capability-pool/repo.js";
@@ -407,6 +408,9 @@ authRouter.post("/password/register", async (req: Request, res: Response) => {
 
       if (normalizedInviteCode) {
         const inviter = await bindUserToInviterByCode(createdUser.id, normalizedInviteCode, client);
+        // 邀请奖励：每成功邀请一位新用户注册，给邀请人 +10 条额外业务指令次数。
+        // 该额度在每日免费额度用完后才动用，且试用到期会先被拦截 → 余额随试用失效。
+        await addUserBusinessMessageCredits(inviter.id, 10, client);
         await awardInviteRewards({
           inviterUserId: inviter.id,
           inviteeUserId: createdUser.id,

@@ -57,6 +57,8 @@ export interface MembershipAccessSnapshot {
   allowed: boolean;
   reasonCode: MembershipAccessReasonCode;
   reason: string | null;
+  /** 额外业务指令次数余额（如邀请赠送）；每日免费额度用完后才动用，试用到期即失效。 */
+  extraBusinessMessageCredits?: number;
 }
 
 export interface EvaluateMembershipAccessInput {
@@ -343,27 +345,30 @@ function buildAccessFromContext(
     now,
   });
 
-  if (base.isMember) {
-    return base;
+  // 统一带上额外业务次数余额，供前端展示。
+  const annotated: MembershipAccessSnapshot = { ...base, extraBusinessMessageCredits: extraBusinessCredits };
+
+  if (annotated.isMember) {
+    return annotated;
   }
 
-  if (base.allowed) {
+  if (annotated.allowed) {
     return {
-      ...base,
+      ...annotated,
       allowed: true,
     };
   }
 
-  if (base.reasonCode === "FREE_DAILY_LIMIT_REACHED" && extraBusinessCredits > 0) {
+  if (annotated.reasonCode === "FREE_DAILY_LIMIT_REACHED" && extraBusinessCredits > 0) {
     return {
-      ...base,
+      ...annotated,
       allowed: true,
       reasonCode: "EXTRA_BUSINESS_CREDITS_USED",
-      reason: `今日免费额度已用完，可使用管理员赠送的额外业务次数。`,
+      reason: `今日免费额度已用完，正在使用赠送的额外业务次数（剩余 ${extraBusinessCredits} 次）。`,
     };
   }
 
-  return base;
+  return annotated;
 }
 
 export async function getBusinessAccessSnapshot(userId: string, now: Date = new Date()): Promise<MembershipAccessSnapshot> {

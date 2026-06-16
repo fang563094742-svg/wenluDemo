@@ -307,7 +307,7 @@ INSERT INTO plans (id, name, price_cents, duration_days, features) VALUES
   ('free',    '免费体验', 0,    0,   '{"max_sessions": 1, "max_messages_per_day": 10, "free_trial_days": 3, "features": ["basic_chat"]}'),
   ('member',  '1天会员', 300, 1, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "erf4ee", "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
   ('monthly', '30天会员', 3000, 30, '{"max_sessions": 10, "max_messages_per_day": -1, "payment_goods_key": "lyx0va", "features": ["basic_chat", "deep_scan", "memory", "proactive"]}'),
-  ('yearly',  '永久会员', 19900, 0, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "sz6oz0", "features": ["basic_chat", "deep_scan", "memory", "proactive", "priority"]}')
+  ('yearly',  '年度会员', 19900, 365, '{"max_sessions": -1, "max_messages_per_day": -1, "payment_goods_key": "sz6oz0", "features": ["basic_chat", "deep_scan", "memory", "proactive", "priority"]}')
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   price_cents = EXCLUDED.price_cents,

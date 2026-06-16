@@ -683,9 +683,9 @@
     },
     {
       id: 'yearly',
-      name: '永久会员',
+      name: '年度会员',
       price_cents: 19900,
-      duration_days: 0,
+      duration_days: 365,
       features: { max_sessions: -1, max_messages_per_day: -1, features: ['深度扫描', '记忆能力', '主动执行', '优先响应'] }
     }
   ];
@@ -1084,10 +1084,10 @@
   }
 
   function isPermanentMembership(membership) {
-    if (!membership) return false;
-    var planId = String(membership.planId || '').trim();
-    var planName = String(membership.planName || '').trim();
-    return planId === 'yearly' || /永久/.test(planName);
+    if (!membership || !membership.isMember) return false;
+    // 永久 = 已开通会员但后端未返回任何到期时间（无时长限制）。
+    // 年度会员等有 duration 的套餐会带 subscriptionExpiresAt，按到期展示，不算永久。
+    return !membership.subscriptionExpiresAt;
   }
 
   function getMembershipExpireText(membership) {
