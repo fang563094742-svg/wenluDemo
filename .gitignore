@@ -217,3 +217,9 @@ src/riverMain.ts.PRE-FORMAT-*
 src/riverMain.ts.TRANSPILED-BACKUP-*
 src/riverMain.ts.PREWIRE-*
 src/riverMain.ts.SNAPSHOT-*
+
+# 凭证 - 严禁入库 (历史里曾误入, 已用 git rm --cached 移除追踪, 后续真实值需在每台机器本地维护)
+.env
+.env.broker
+.env.local
+.env.*.local
