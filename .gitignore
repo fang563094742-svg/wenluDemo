@@ -211,3 +211,9 @@ data/capability-line/million-learning-line.json
 
 # 恢复工作目录(缓存导出/补丁脚本/备份文件,绝不入库)
 .recover_tmp/
+
+# riverMain 反编译/抢救备份 (本地安全网)
+src/riverMain.ts.PRE-FORMAT-*
+src/riverMain.ts.TRANSPILED-BACKUP-*
+src/riverMain.ts.PREWIRE-*
+src/riverMain.ts.SNAPSHOT-*
