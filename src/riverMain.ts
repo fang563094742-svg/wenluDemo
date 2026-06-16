@@ -219,6 +219,31 @@ function budgetCheck(dim, amount = 1, label = "") {
   }
   return r;
 }
+// P1-5 (actionLedger): 每次 tool 调用流水落 NDJSON. 与 mind.json (快照) 分离,
+// append-only 不改写历史. 数据沉淀后给"为什么 mind 是这样"提供事后审计。
+import { createActionLedger } from "./runtime/actionLedger.js";
+const ledger = createActionLedger(getWenluDataDir());
+function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
+  // fail-open: ledger 写入失败不影响主流程
+  try {
+    const entry = {
+      id: `lg${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      cycle: typeof mind !== "undefined" && mind ? (mind.cycles ?? 0) : 0,
+      source: "executor",
+      action: name,
+      input: args,
+      outputSummary: typeof output === "string" ? output.slice(0, 4000) : JSON.stringify(output ?? "").slice(0, 4000),
+      durationMs,
+      success,
+      errorMessage,
+      sideEffects: [],
+      rollbackable: false,
+    };
+    ledger.append(entry).catch(() => {});
+  } catch {}
+}
+
 
 const execFileAsync = promisify(execFile);
 void execFileAsync;
@@ -5506,7 +5531,20 @@ function isDebtworthyToolFailure(name, result) {
 __name(isDebtworthyToolFailure, "isDebtworthyToolFailure");
 __name2(isDebtworthyToolFailure, "isDebtworthyToolFailure");
 async function executeToolObserved(name, args, context) {
-  const result = await executeTool(name, args);
+  // P1-5: ledger 接线 - 流水落账, fail-open
+  const _ledgerStart = Date.now();
+  let _ledgerSuccess = true;
+  let _ledgerError;
+  let result;
+  try {
+    result = await executeTool(name, args);
+  } catch (e) {
+    _ledgerSuccess = false;
+    _ledgerError = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    ledgerLogTool(name, args, result, Date.now() - _ledgerStart, _ledgerSuccess, _ledgerError);
+  }
   if (isDebtworthyToolFailure(name, result)) {
     await absorbCapabilityDebtFromFailureEvent({
       goal: context.goal,
