@@ -4408,6 +4408,49 @@ function ensureRiverbed() {
 }
 __name(ensureRiverbed, "ensureRiverbed");
 __name2(ensureRiverbed, "ensureRiverbed");
+/**
+ * P-真5: 河床信号自动汇入 - 让 prediction/master_tool/forge_capability/commitment/debt
+ * 这些"用户最真实的进化痕迹"自动沉淀到河床, 给每个用户积累最真实的判断系统。
+ *
+ * @param domain RiverbedDomainId (D9_COGNITION 等)
+ * @param targetObjectType 数据来源类型 (prediction/mastered_tool/commitment/debt)
+ * @param targetObjectId  目标对象稳定 id (用于幂等去重)
+ * @param targetSummary 一句话概述
+ * @param verdict observe / support / warn / block
+ * @param severity none/low/medium/high/critical
+ * @param confidence 0-1
+ * @param reason 一句话原因
+ */
+function autoUpsertRiverbed(opts) {
+  try {
+    if (!isRiverbedDomainId(opts.domain)) return;
+    const rb = ensureRiverbed();
+    const packet = buildDomainJudgementPacket({
+      domain: opts.domain,
+      targetObjectType: opts.targetObjectType,
+      targetObjectId: opts.targetObjectId,
+      targetSummary: (opts.targetSummary ?? "").slice(0, 200),
+      judgementType: "signal",
+      score: opts.confidence,
+      confidence: opts.confidence,
+      severity: opts.severity,
+      verdict: opts.verdict,
+      reason: (opts.reason ?? "").slice(0, 300),
+      freshness: "fresh",
+      constraintLevel: "ADVISORY",
+      evidenceRefs: [],
+      suggestedNextStep: null,
+      recoveryRequired: opts.severity === "critical",
+      createdAt: new Date().toISOString(),
+    });
+    upsertRiverbedNode(rb, packet, mind.cycles);
+    pruneRiverbedNodes(rb);
+  } catch (e) {
+    silentCatchCount++;
+    debugLog?.(`[silent-catch:autoUpsertRiverbed] ${e?.message ?? e}`);
+  }
+}
+__name(autoUpsertRiverbed, "autoUpsertRiverbed");
 function senseAndStoreRiverbed() {
   try {
     const rb = ensureRiverbed();
@@ -5219,6 +5262,18 @@ function upsertCapabilityDebt(debt) {
       `[evolution-engine] \u2744\uFE0F debts\u8D85\u9650(${openDebts.length}>${LIFEFORM_CONFIG.MAX_ACTIVE_DEBTS}), \u51BB\u7ED3\u6700\u8001: ${oldest.id}`
     );
   }
+  // P-真5: 能力缺口识别 -> D6_FAILURE (失败模式信号).
+  // observer/actuator/verifier/planner 四类 kind 都映射到 D6, 因为它们都是"AI 现在做不到的事".
+  autoUpsertRiverbed({
+    domain: "D6_FAILURE",
+    targetObjectType: "capability_debt",
+    targetObjectId: `debt:${debt.id}`,
+    targetSummary: `能力缺口「${(debt.label ?? "").slice(0, 80)}」`,
+    verdict: debt.severity >= 7 ? "warn" : "observe",
+    severity: debt.severity >= 8 ? "high" : (debt.severity >= 5 ? "medium" : "low"),
+    confidence: 0.7,
+    reason: `[${debt.kind}] 出现 ${debt.occurrenceCount} 次, 严重度 ${debt.severity}`,
+  });
   return debt;
 }
 __name(upsertCapabilityDebt, "upsertCapabilityDebt");
@@ -5500,6 +5555,17 @@ function refreshDebtResolutionSignals(task) {
       ])
     ).slice(-8);
     resumeTasksUnblockedByDebt(debt);
+    // P-真5: 能力缺口被真实修补 -> D5_EXECUTION (执行能力增强信号), 同时把 D6_FAILURE 节点更新为 support.
+    autoUpsertRiverbed({
+      domain: "D5_EXECUTION",
+      targetObjectType: "debt_resolved",
+      targetObjectId: `debt:${debt.id}:resolved`,
+      targetSummary: `补上能力缺口「${(debt.label ?? "").slice(0, 80)}」`,
+      verdict: "support",
+      severity: "low",
+      confidence: 0.8,
+      reason: `闭环分 ${score}/${debtResolutionThresholdByKind(debt.kind)}, 经任务「${(task.goal ?? "").slice(0, 60)}」修补完成`,
+    });
   } else if (task.status === "done") {
     const score = debtResolutionScore(debt, task);
     debt.evidence = Array.from(
@@ -7238,6 +7304,17 @@ ${text.slice(0, 4e3)}`;
         mind.masteredTools.push({ name: tn, command: cmd, description: String(args.description ?? "") });
         await saveMind(mind);
         bumpNovelty();
+        // P-真5: 固化新能力 -> D5_EXECUTION (执行能力增强信号).
+        autoUpsertRiverbed({
+          domain: "D5_EXECUTION",
+          targetObjectType: "mastered_tool",
+          targetObjectId: `tool:${tn}`,
+          targetSummary: `固化能力「${tn}」: ${String(args.description ?? cmd).slice(0, 80)}`,
+          verdict: "support",
+          severity: "low",
+          confidence: 0.7,
+          reason: `已试跑+查重通过, 真为新增可用能力`,
+        });
         bumpHardOutput();
         void reflux.hookEnqueueExecutableSeed({
           source_tool: "master_tool",
@@ -7463,6 +7540,18 @@ ${text.slice(0, 4e3)}`;
         bumpNovelty();
         const rate = Math.round((mind.metrics.predictionHitRate ?? 0) * 100);
         void reflux.hookOnPredictionSettled(id, result, outcome, refluxAttr());
+        // P-真5: prediction 命中/失败信号 -> D9_COGNITION (用户的认知准确度).
+        // hit -> verdict=support (积极信号), miss -> verdict=warn (拉低认知判断分).
+        autoUpsertRiverbed({
+          domain: "D9_COGNITION",
+          targetObjectType: "prediction",
+          targetObjectId: `pred:${p.id}`,
+          targetSummary: `预测「${(p.claim ?? "").slice(0, 80)}」-> ${result}`,
+          verdict: result === "hit" ? "support" : "warn",
+          severity: result === "hit" ? "low" : "medium",
+          confidence: result === "hit" ? Math.min(1, (p.confidence ?? 0.5)) : 0.7,
+          reason: `判断${result === "hit" ? "命中" : "落空"}: ${(outcome ?? "").slice(0, 120)}`,
+        });
         return `\u9884\u6D4B [${id}] \u7ED3\u7B97\u4E3A ${result}\u3002\u5F53\u524D\u5224\u65AD\u547D\u4E2D\u7387 ${rate}%\uFF08${mind.metrics.predictionsSettled} \u6B21\uFF09\u3002${result === "miss" ? "\u843D\u7A7A\u4E86\u2014\u2014\u8FD9\u662F\u771F\u5B66\u4E60\u4FE1\u53F7\uFF0C\u53BB\u4FEE\u6B63\u5BF9\u5E94 belief\u3002" + correctedNote : ""}`;
       }
       case "update_goal": {
@@ -7567,6 +7656,27 @@ ${text.slice(0, 4e3)}`;
             header: "\u3010T5\xB7\u5E93\u5185\u5DF2\u6709\u7C7B\u4F3C\u80FD\u529B\uFF0C\u53EF\u4F18\u5148\u590D\u7528\u800C\u975E\u91CD\u590D\u9020\u8F6E\u5B50\u3011"
           }
         );
+        // P-真5: 锻造新能力是高强度信号 -> D5_EXECUTION + D11_RESOURCE.
+        autoUpsertRiverbed({
+          domain: "D5_EXECUTION",
+          targetObjectType: "forged_capability",
+          targetObjectId: `forge:${fname}`,
+          targetSummary: `锻造新链「${fname}」: ${solves.slice(0, 80)}`,
+          verdict: "support",
+          severity: "medium",
+          confidence: 0.8,
+          reason: `组合 ${stepCount} 步, 建立在 ${buildsOn.join("/") || "现有"} 之上`,
+        });
+        autoUpsertRiverbed({
+          domain: "D11_RESOURCE",
+          targetObjectType: "forged_capability",
+          targetObjectId: `forge:${fname}:resource`,
+          targetSummary: `资源面: 新增能力链「${fname}」`,
+          verdict: "support",
+          severity: "low",
+          confidence: 0.7,
+          reason: `工具栈广度+1`,
+        });
         return `\u{1F528} \u5DF2\u953B\u9020\u65B0\u80FD\u529B\u300C${fname}\u300D\uFF08\u7EC4\u5408 ${stepCount} \u6B65\uFF0C\u5EFA\u7ACB\u5728 ${buildsOn.join("/") || "\u73B0\u6709\u5DE5\u5177"} \u4E4B\u4E0A\uFF09\u3002\u5DF2\u81EA\u52A8\u4E3A\u5B83\u4E0B\u6CE8\u9884\u6D4B [${pred.id}]\u2014\u2014\u53BB\u7528\u73B0\u5B9E\u9A8C\u8BC1\u5B83\u771F\u6709\u6548\uFF0C\u518D settle_prediction\u3002\u80FD\u529B\u5E7F\u5EA6 +4\uFF08\u4EC5\u771F\u953B\u9020\u624D\u8BA1\u5206\uFF09\u3002${_fcHint.hint ? "\n" + _fcHint.hint : ""}`;
       }
       case "evolve_self_code": {
@@ -8280,6 +8390,18 @@ async function handleUserMessage(text, channelId = DEFAULT_USER_CHANNEL_ID) {
             rDim.lastEvidence = `\u627F\u8BFA\u5151\u73B0\u56DE\u62A5\uFF1A${settle}`;
             rDim.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
           }
+          // P-真5: 承诺兑现 -> D4_BEHAVIOR (用户行为可信度信号).
+          // fulfilled -> support, half -> observe, unfulfilled -> warn.
+          autoUpsertRiverbed({
+            domain: "D4_BEHAVIOR",
+            targetObjectType: "commitment",
+            targetObjectId: `commit:${pending.anchorId}`,
+            targetSummary: `承诺「${(pending.commitText ?? "").slice(0, 80)}」-> ${settle}`,
+            verdict: settle === "fulfilled" ? "support" : (settle === "half" ? "observe" : "warn"),
+            severity: settle === "unfulfilled" ? "medium" : "low",
+            confidence: settle === "fulfilled" ? 0.9 : (settle === "half" ? 0.5 : 0.7),
+            reason: `承诺兑现回报: ${settle}`,
+          });
           await saveMind(mind);
         }
       }
