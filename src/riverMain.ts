@@ -254,6 +254,10 @@ function decayConfidence(rawConfidence, createdAtIso) {
   const factor = temporalDecay(Math.max(0, ageMs), { halfLifeMs: BELIEF_HALFLIFE_MS });
   return rawConfidence * factor;
 }
+// P-真3 (验收闸): finish_task 声称 done 时强制走 decideAfterVerify.
+// 任务必须有验收测试结果且全部通过才能真 done; 否则改成 retry_or_block.
+// 这是穿越者视角的硬护栏 — 不让 AI 说"我以为我做完了"。
+import { decideAfterVerify } from "./delivery/decideAfterVerify.js";
 
 
 
@@ -2811,7 +2815,33 @@ ${fails}
           messages.push({ role: "tool", content: "\u8FDB\u5EA6\u5DF2\u8BB0\u5F55", toolCallId: tc.id });
         } else if (tc.name === "finish_task") {
           const st = String(tc.arguments.status ?? "done");
-          cur.status = st === "done" || st === "failed" || st === "blocked" ? st : "done";
+          let resolvedStatus = st === "done" || st === "failed" || st === "blocked" ? st : "done";
+          // P-真3: 验收闸 — 声称 done 必须有验收证据全部通过. 否则改成 blocked.
+          // 数据来源: 任务关联的 verifiableTask 验收结果 (cur.acceptanceTestResults), 或者
+          // cur.definitionOfDone.doneJudgment.verdict (LLM 验证结果). 两者皆无 / 全部失败时
+          // 视为'未验收 -> retry_or_block'。
+          if (resolvedStatus === "done") {
+            const acceptanceResults = Array.isArray((cur as any).acceptanceTestResults)
+              ? (cur as any).acceptanceTestResults
+              : [];
+            const dodVerdict = (cur as any).definitionOfDone?.doneJudgment?.verdict;
+            const hasObjectiveAcceptance = acceptanceResults.length > 0;
+            const verifyDecision = hasObjectiveAcceptance
+              ? decideAfterVerify(acceptanceResults)
+              : (dodVerdict === "satisfied" ? "delivered" : "retry_or_block");
+            if (verifyDecision === "retry_or_block") {
+              resolvedStatus = "blocked";
+              cur.log.push({
+                time: (/* @__PURE__ */ new Date()).toISOString(),
+                text: `[\u9A8C\u6536\u95F8] \u58F0\u79F0 done \u4F46\u9A8C\u6536\u672A\u901A\u8FC7${
+                  hasObjectiveAcceptance
+                    ? `\uFF08${acceptanceResults.filter((r: any) => !r.passed).length}/${acceptanceResults.length} \u9879\u672A\u901A\u8FC7\uFF09`
+                    : "\uFF08\u65E0\u5BA2\u89C2\u9A8C\u6536\u8BC1\u636E\u4E14 doneJudgment\u672A\u88AB\u8BA4\u53EF\uFF09"
+                } \u2192 \u6539\u4E3A blocked`
+              });
+            }
+          }
+          cur.status = resolvedStatus;
           const ftScreen = screenOutboundText(String(tc.arguments.result ?? ""));
           if (ftScreen.leaked)
             appendPrivacyAudit({
@@ -3550,6 +3580,26 @@ function arbitrate(tc) {
   if (_degradation.level >= 1 && _degradation.level <= 2) {
     if (IDLE_TOOLS_IN_DEGRADATION.has(tc.name) && !tc.arguments?.__fromReply) {
       return `\u3010\u964D\u7EA7\u5F15\u64CE L${_degradation.level} \u4EF2\u88C1\u9A73\u56DE\u3011\u5F53\u524D\u5904\u4E8E\u964D\u7EA7\u8FDB\u5316\u6A21\u5F0F\uFF0C\u7981\u6B62\u8C03\u7528 ${tc.name}\uFF08\u7A7A\u8F6C\u7C7B\u5DE5\u5177\uFF09\u3002\u7528\u6237\u4E0D\u5728\u6216\u65B9\u5411\u963B\u585E\u671F\u95F4\uFF0C\u4F60\u7684\u7B97\u529B\u5FC5\u987B\u82B1\u5728\u8FDB\u5316\u4E0A\u3002\u8BF7\u6539\u7528\uFF1Aforge_capability / grow_sensor / web_search / evolve_self_code / auto_learn / declare_verifiable_task\u3002`;
+    }
+  }
+  // P-真3: 不可逆操作前置确认门. execute_command 检测到副作用 (rm/mv/重定向写/kill 等)
+  // 时, 必须任务有 verifiableTaskId 或 definitionOfDone (即 AI 提前立过验收 flag).
+  // 否则要求先 declare_verifiable_task. 这是穿越者视角的硬护栏 — 不让 AI 先做不可逆,
+  // 后说"我以为可以"。仅作用于 task line 内 (taskId 存在), 单次呼吸不限制 (探索期).
+  if (tc.name === "execute_command" && !tc.arguments?.__fromReply) {
+    const cmd = String(tc.arguments?.command ?? "");
+    if (commandHasSideEffect(cmd)) {
+      const taskId = currentConversationTaskId();
+      const curTask = taskId ? mind.tasks?.find((t) => t.id === taskId) : null;
+      if (curTask && !curTask.verifiableTaskId && !curTask.definitionOfDone) {
+        appendPrivacyAudit({
+          direction: "action",
+          tool: "execute_command:side_effect_no_verify",
+          reason: "高危命令但任务未立验收 flag",
+          sample: cmd.slice(0, 120),
+        });
+        return `\u3010\u9AD8\u5371\u524D\u7F6E\u95E8\u3011\u4F60\u7684\u547D\u4EE4\u542B\u4E0D\u53EF\u9006\u526F\u4F5C\u7528\uFF08rm/mv/\u91CD\u5B9A\u5411\u5199/kill \u7B49\uFF09\uFF0C\u4F46\u5F53\u524D\u4EFB\u52A1\u6CA1\u6709\u9884\u5148\u8C03\u7528 declare_verifiable_task \u7ACB\u9A8C\u6536 flag\u3002\u8BF7\u5148 declare_verifiable_task \u8BF4\u660E\u300C\u600E\u4E48\u7B97\u505A\u5B8C\u300D\uFF08verifyCmd \u6216 assertions\uFF09\uFF0C\u518D\u6267\u884C\u4E0D\u53EF\u9006\u52A8\u4F5C\u3002\u8FD9\u4E0D\u662F\u9650\u5236\u4F60\uFF0C\u662F\u8BA9\u4F60\u4E4B\u540E\u80FD\u5BA2\u89C2\u8BC1\u660E\u201C\u505A\u5B8C\u4E86\u201D\u3002`;
+      }
     }
   }
   return "";
