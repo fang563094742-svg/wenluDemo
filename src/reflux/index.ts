@@ -285,6 +285,8 @@ export {
   retrieveHint as hookRetrieveHint,
   rescueRetrieve as hookRescueRetrieve,
   preForgeLookup as hookPreForgeLookup,
+  hookOnboard,
+  hookTopUpOnConnector,
 } from "./riverHooks.js";
 
 // API 路由与 auth 接入（/api/skills、/api/reflux；requireAuth + pending 经 requireAdmin）

@@ -42,6 +42,13 @@ import {
   type ReuseResult,
 } from "./activeReuse.js";
 import { createPgSkillRepo } from "./skillRepo.js";
+import {
+  createOnboarding,
+  createPgOnboardingStore,
+  type Onboarding,
+  type OnboardResult,
+  type TopUpResult,
+} from "./onboarding.js";
 import { resolveRefluxConfig, type RefluxConfig } from "./config.js";
 import type {
   HarvestSignal,
@@ -64,6 +71,7 @@ let _harvester: Harvester | null = null;
 let _distiller: Distiller | null = null;
 let _dispatcher: Dispatcher | null = null;
 let _activeReuse: ActiveReuse | null = null;
+let _onboarding: Onboarding | null = null;
 let _config: RefluxConfig | null = null;
 
 function config(): RefluxConfig {
@@ -96,6 +104,50 @@ export function dispatcher(): Dispatcher {
 export function activeReuse(): ActiveReuse {
   if (!_activeReuse) _activeReuse = createActiveReuse({ dispatcher: dispatcher(), config: config() });
   return _activeReuse;
+}
+
+/** 默认 Onboarding: 新用户冷启动继承 starter skills (反哺下载半边). */
+export function onboarding(): Onboarding {
+  if (!_onboarding) {
+    _onboarding = createOnboarding({
+      repo: createPgSkillRepo(),
+      store: createPgOnboardingStore(),
+      config: config(),
+    });
+  }
+  return _onboarding;
+}
+
+/**
+ * 新用户冷启动继承入口 (auth 在注册成功 / 首登后调用).
+ * 失败仅 console.warn, 不影响注册主链 (Req 17.10).
+ */
+export async function hookOnboard(
+  userId: string,
+  platform?: SkillPlatform,
+): Promise<OnboardResult | null> {
+  try {
+    return await onboarding().onboard(userId, platform);
+  } catch (e) {
+    swallow(`hookOnboard userId=${userId.slice(0, 8)}`, e);
+    return null;
+  }
+}
+
+/**
+ * 连接器上线后补继承入口 (riverMain 收到连接器上线事件后调用).
+ * 失败仅 console.warn, 不影响连接器主链.
+ */
+export async function hookTopUpOnConnector(
+  userId: string,
+  platform: SkillPlatform,
+): Promise<TopUpResult | null> {
+  try {
+    return await onboarding().topUpOnConnector(userId, platform);
+  } catch (e) {
+    swallow(`hookTopUpOnConnector userId=${userId.slice(0, 8)} platform=${platform}`, e);
+    return null;
+  }
 }
 
 /** 统一吞错日志（不向上抛，保证主链不被破坏，A4）。 */

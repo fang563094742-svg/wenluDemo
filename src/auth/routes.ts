@@ -27,6 +27,7 @@ import {
 } from "../db/userRepo.js";
 import { transaction } from "../db/pool.js";
 import { inheritCapabilities } from "../capability-pool/repo.js";
+import { hookOnboard } from "../reflux/index.js";
 import { codeToToken, getWechatUserInfo, isMockMode } from "./wechatService.js";
 import { createAuthSessionForUser, logoutAuthSession, refreshAuthSession } from "./authSessionService.js";
 import { hashPassword, validatePassword, validateUsername, verifyPassword } from "./passwordService.js";
@@ -168,6 +169,20 @@ async function applyNewUserCapabilities(userId: string, logPrefix: string): Prom
     }
   } catch (inheritErr) {
     console.warn(`${logPrefix} 自动继承公共能力失败:`, inheritErr);
+  }
+  // 反哺下载半边: 触发 reflux onboarding 给新用户继承 starter skills
+  // (从其他用户飞轮蒸馏出的高质量能力, 按 cross_user_breadth + quality_score 取 TopN).
+  // 失败仅 console.warn 不影响注册主链 (Req 17.10).
+  try {
+    const result = await hookOnboard(userId);
+    if (result && Array.isArray((result as any).inheritedSkillIds)) {
+      const ids = (result as any).inheritedSkillIds as string[];
+      if (ids.length > 0) {
+        console.log(`${logPrefix} 新用户 ${userId} 反哺继承 ${ids.length} 条 starter skill`);
+      }
+    }
+  } catch (onboardErr) {
+    console.warn(`${logPrefix} reflux onboarding 失败:`, onboardErr);
   }
 }
 

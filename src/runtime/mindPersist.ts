@@ -13,7 +13,8 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { scrubSecrets } from "../sovereign/privacy-boundary.js";
 
 const CHANNELS_BACKUP_DIR = ".mind-backups";
-const BACKUP_MIN_INTERVAL_MS = 60_000;
+// 备份间隔从 1 分钟拉到 5 分钟; 单用户单进程典型每天 ~150 个备份 (vs 之前 1440 个).
+const BACKUP_MIN_INTERVAL_MS = 5 * 60_000;
 let lastBackupTime = 0;
 
 export interface ChannelLike {
@@ -90,6 +91,12 @@ export async function pruneBackups(backupDir: string): Promise<void> {
     return;
   }
   const now = Date.now();
+  // 配额阶梯 (multi-user 上线后单用户进程仍按这个跑, 比之前更紧):
+  //  - 最近 15 分钟: 全保留 (短窗口随手回滚)
+  //  - 15 分钟 -> 1 天: 每 15 分钟保留 1 个
+  //  - 1 天 -> 7 天: 每天保留 1 个
+  //  - 7 天前: 全删
+  const QUARTER_HOUR = 15 * 60_000;
   const ONE_HOUR = 3_600_000;
   const ONE_DAY = 86_400_000;
   const SEVEN_DAYS = 7 * ONE_DAY;
@@ -100,18 +107,18 @@ export async function pruneBackups(backupDir: string): Promise<void> {
   }
   parsed.sort((a, b) => b.ts - a.ts);
   const toDelete: string[] = [];
-  const keptHourBuckets = new Set<number>();
+  const keptQuarterBuckets = new Set<number>();
   const keptDayBuckets = new Set<number>();
   for (const entry of parsed) {
     const age = now - entry.ts;
-    if (age <= ONE_HOUR) {
+    if (age <= QUARTER_HOUR) {
       continue;
     } else if (age <= ONE_DAY) {
-      const bucket = Math.floor(entry.ts / ONE_HOUR);
-      if (keptHourBuckets.has(bucket)) {
+      const bucket = Math.floor(entry.ts / QUARTER_HOUR);
+      if (keptQuarterBuckets.has(bucket)) {
         toDelete.push(entry.name);
       } else {
-        keptHourBuckets.add(bucket);
+        keptQuarterBuckets.add(bucket);
       }
     } else if (age <= SEVEN_DAYS) {
       const bucket = Math.floor(entry.ts / ONE_DAY);
