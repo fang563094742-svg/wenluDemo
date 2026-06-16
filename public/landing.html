@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>问路｜AI驱动的目标推进系统</title>
+  <meta name="description" content="问路｜不是聊天机器人，是替你扛住方向、每天跟进、逼你交付的未来版自己。3元/天解锁全部能力。" />
+  <meta name="keywords" content="问路,AI陪跑,目标管理,accountability,AI教练,自律,创业者工具" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="问路｜AI驱动的目标推进系统" />
+  <meta property="og:description" content="不是聊天机器人，是替你扛住方向、每天跟进、逼你交付的未来版自己。" />
+  <meta property="og:url" content="https://api.jiaxinqles.us/wenlu/landing.html" />
+  <meta property="og:image" content="https://api.jiaxinqles.us/wenlu/og-cover.png" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="问路｜AI驱动的目标推进系统" />
+  <meta name="twitter:description" content="不是聊天机器人，是替你扛住方向、每天跟进、逼你交付的未来版自己。" />
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #16161d;
+      --border: rgba(255,255,255,0.06);
+      --text: #f5f5f7;
+      --secondary: #a1a1a6;
+      --muted: #6e6e73;
+      --accent: #0a84ff;
+      --accent-glow: rgba(10,132,255,0.15);
+      --green: #30d158;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 80px 24px 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 6vw, 52px);
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      line-height: 1.2;
+      max-width: 680px;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .hero p {
+      font-size: clamp(16px, 2.5vw, 20px);
+      color: var(--secondary);
+      max-width: 520px;
+      margin-bottom: 40px;
+      position: relative;
+    }
+    .cta-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      position: relative;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 14px 28px;
+      border-radius: 980px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(10,132,255,0.3);
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 14px 28px;
+      border-radius: 980px;
+      background: transparent;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.15);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .btn-secondary:hover {
+      border-color: rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.04);
+    }
+
+    /* Features */
+    .features {
+      padding: 100px 24px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .features h2 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      margin-bottom: 48px;
+      text-align: center;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 28px;
+      transition: transform 0.2s, border-color 0.3s;
+    }
+    .feature-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .feature-card .icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--secondary);
+      line-height: 1.6;
+    }
+
+    /* Pricing */
+    .pricing {
+      padding: 100px 24px;
+      text-align: center;
+    }
+    .pricing h2 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .pricing .sub {
+      color: var(--secondary);
+      margin-bottom: 48px;
+    }
+    .price-cards {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .price-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      width: 240px;
+      text-align: left;
+      position: relative;
+      transition: transform 0.2s;
+    }
+    .price-card:hover { transform: translateY(-4px); }
+    .price-card.popular {
+      border-color: var(--accent);
+      box-shadow: 0 0 40px rgba(10,132,255,0.1);
+    }
+    .price-card.popular::after {
+      content: '推荐';
+      position: absolute;
+      top: -10px;
+      right: 16px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 980px;
+    }
+    .price-card .tier {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .price-card .amount {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .price-card .unit {
+      font-size: 13px;
+      color: var(--secondary);
+      margin-bottom: 20px;
+    }
+    .price-card ul {
+      list-style: none;
+      font-size: 13px;
+      color: var(--secondary);
+    }
+    .price-card ul li {
+      padding: 4px 0;
+    }
+    .price-card ul li::before {
+      content: '✓ ';
+      color: var(--green);
+    }
+
+    /* Comparison */
+    .comparison {
+      padding: 80px 24px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .comparison h2 {
+      font-size: 24px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .compare-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .compare-item .q { color: var(--secondary); flex: 1; }
+    .compare-item .a { color: var(--text); font-weight: 500; text-align: right; max-width: 60%; }
+
+    /* Footer CTA */
+    .footer-cta {
+      padding: 80px 24px;
+      text-align: center;
+    }
+    .footer-cta h2 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .footer-cta p {
+      color: var(--secondary);
+      margin-bottom: 32px;
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+
+    /* Mobile */
+    @media (max-width: 600px) {
+      .hero { padding: 60px 20px 40px; }
+      .features { padding: 60px 20px; }
+      .pricing { padding: 60px 20px; }
+      .price-cards { flex-direction: column; align-items: center; }
+      .price-card { width: 100%; max-width: 320px; }
+    }
+  </style>
+</head>
+<body>
+
+<section class="hero">
+  <h1>你缺的不是方法，<br>是一个逼你做到的人。</h1>
+  <p>问路是 AI 驱动的目标推进系统——不给你鸡汤，只给你压力、跟进和结果。</p>
+  <div class="cta-group">
+    <a href="register.html" class="btn-primary">免费体验</a>
+    <a href="#pricing" class="btn-secondary">查看定价</a>
+  </div>
+</section>
+
+<section class="features">
+  <h2>为什么选问路</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="icon">🔔</div>
+      <h3>每天跟进，不让你跑</h3>
+      <p>你说"明天做"的事，问路不会忘。它会追问进度、要你交证据、不接受借口。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🧭</div>
+      <h3>替你想清楚方向</h3>
+      <p>不是你说什么它就做什么。它会反问"这件事值不值得做"，帮你砍掉 90% 的伪目标。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">📊</div>
+      <h3>用结果说话</h3>
+      <p>7 天一个验收周期。做到了就继续；做不到就复盘、重新定方向。没有模糊地带。</p>
+    </div>
+  </div>
+</section>
+
+<section class="pricing" id="pricing">
+  <h2>简单透明的定价</h2>
+  <p class="sub">比一瓶水便宜，比健身教练便宜 100 倍</p>
+  <div class="price-cards">
+    <div class="price-card">
+      <div class="tier">体验</div>
+      <div class="amount">免费</div>
+      <div class="unit">感受问路的方式</div>
+      <ul>
+        <li>基础目标追踪</li>
+        <li>每日 1 次跟进</li>
+        <li>7 天体验期</li>
+      </ul>
+    </div>
+    <div class="price-card popular">
+      <div class="tier">日卡</div>
+      <div class="amount">¥3</div>
+      <div class="unit">/ 天</div>
+      <ul>
+        <li>全部推进能力</li>
+        <li>无限次跟进</li>
+        <li>目标复盘报告</li>
+        <li>优先响应</li>
+      </ul>
+    </div>
+    <div class="price-card">
+      <div class="tier">月卡</div>
+      <div class="amount">¥30</div>
+      <div class="unit">/ 月</div>
+      <ul>
+        <li>日卡全部权益</li>
+        <li>历史目标回溯</li>
+        <li>进度趋势分析</li>
+        <li>多目标并行</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="comparison">
+  <h2>和 ChatGPT 有什么区别？</h2>
+  <div class="compare-item">
+    <span class="q">ChatGPT 记你的目标吗？</span>
+    <span class="a">不记。问路每天都记着。</span>
+  </div>
+  <div class="compare-item">
+    <span class="q">ChatGPT 会追你进度吗？</span>
+    <span class="a">不会。问路不接受你的借口。</span>
+  </div>
+  <div class="compare-item">
+    <span class="q">ChatGPT 会帮你砍伪目标吗？</span>
+    <span class="a">不会。问路会反问"这值不值得做"。</span>
+  </div>
+  <div class="compare-item">
+    <span class="q">ChatGPT 有验收周期吗？</span>
+    <span class="a">没有。问路 7 天一验收，做不到就复盘。</span>
+  </div>
+  <div class="compare-item">
+    <span class="q">适合什么人？</span>
+    <span class="a">有一件想做但一直拖着没做的事的人。</span>
+  </div>
+</section>
+
+<section class="footer-cta">
+  <h2>别再拖了。</h2>
+  <p>今天开始，让问路替你扛住方向。</p>
+  <a href="register.html" class="btn-primary">立即开始 →</a>
+</section>
+
+<footer>
+  <p>© 2026 问路｜AI驱动的目标推进系统</p>
+</footer>
+
+</body>
+</html>
