@@ -3562,6 +3562,16 @@ async function breathe() {
   console.log(`[breathe] cycle=${mind.cycles} deg=${_degradation.level} rum=${_consecutiveRuminationBreaths}`);
   const sinceLastActive = Date.now() - Date.parse(mind.userLastActiveAt);
   const userAway = sinceLastActive > 10 * 60 * 1e3;
+  // P0-2 (lifecycle): 深度休眠 — 用户离开后连续空转 50 次直接停掉自递归循环,
+  // /say 或 /ui-ready 路由会重新点燃 (alive=true; void breathe())。
+  // 这就把"录屏弹窗 + 远端流量"在用户长期离开时降到 0。
+  if (userAway && interactionState.consecutiveIdleBreaths >= 50) {
+    console.log(
+      `[breathe:dormant] cycle=${mind.cycles} idle=${interactionState.consecutiveIdleBreaths} 用户离开且空转过深, 进入休眠 (用户回来后自动唤醒)`,
+    );
+    alive = false;
+    return;
+  }
   if (!userAway && getDegradationState().level > 0) {
     degradationOnUserReturn();
   }
@@ -3987,6 +3997,12 @@ ${selfDirective}`
     }
     if (_degradation.level >= 2) {
       interval = Math.min(interval, LIFEFORM_CONFIG.AGITATED_BREATH_MS);
+    }
+    // P0-2 (lifecycle): 用户离开时把 active 路径节奏拉慢,最少 90 秒一次,
+    // 减少录屏 / inspect_apps / 远端 LLM 调用的频率。用户回来 (notifyUserActivity)
+    // 重置 mind.userLastActiveAt → 下一轮 userAway=false → 节奏自动恢复。
+    if (userAway) {
+      interval = Math.max(interval, 90e3);
     }
     setTimeout(() => void breathe(), interval);
   }
@@ -8329,6 +8345,12 @@ async function handleUserMessage(text, channelId = DEFAULT_USER_CHANNEL_ID) {
     const privacyHit = classifyPrivacyIntent(text);
     if (privacyHit.hit) {
       mind.userLastActiveAt = new Date().toISOString();
+      // P0-2 (lifecycle): privacy hit 路径也代表"用户开口了", 必须唤醒休眠中的 cycle。
+      if (!alive) {
+        alive = true;
+        console.log(`[breathe:wake] privacy-hit 唤醒, cycles=${mind.cycles}`);
+        void breathe();
+      }
       publishMessage({ kind: "user", source: "chat", role: "user", text, eventType: "chat-reply" });
       publishMessage({ kind: "wenlu", source: "chat", role: "wenlu", text: privacyHit.reply, eventType: "chat-reply" });
       emit({ kind: "say", text: privacyHit.reply, growth: null });
@@ -8363,6 +8385,13 @@ async function handleUserMessage(text, channelId = DEFAULT_USER_CHANNEL_ID) {
       );
     }
     mind.userLastActiveAt = new Date().toISOString();
+    // P0-2 (lifecycle): 用户开口 -> 重新点燃 cycle (与 /ui-ready 对齐)。
+    // 如果 cycle 进入了深度休眠 (alive=false), 必须显式唤醒, 不然消息进了但 AI 不工作。
+    if (!alive) {
+      alive = true;
+      console.log(`[breathe:wake] /say 唤醒, idle=${interactionState.consecutiveIdleBreaths} cycles=${mind.cycles}`);
+      void breathe();
+    }
     if (_degradation.level > 0) {
       console.log(`[degradation] \u7528\u6237\u53D1\u6D88\u606F\uFF0C\u4ECE L${_degradation.level} \u5F52\u96F6`);
       _degradation.level = 0;
