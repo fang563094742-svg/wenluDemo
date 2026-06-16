@@ -23,12 +23,19 @@ import { ResilientLlm } from "../llm/resilientLlm.js";
 import { LlmPool, type LlmPoolMember } from "../llm/llmPool.js";
 import { buildProxyFetch } from "../llm/proxyFetch.js";
 import type { LLM_Provider, LlmRequest, LlmToolRequest } from "../llm/llmProvider.js";
+import { TestModeLlmProvider } from "./testModeLlm.js";
 
 /**
  * 从环境变量构造 LLM 池（与 riverMain main() 同构）。主中转必有；备用/直连/本地按配置挂载。
  * 经纪进程合法持有这些密钥与端点。
  */
 export function buildLlmFromEnv(env: NodeJS.ProcessEnv = process.env): LLM_Provider {
+  const testMode = (env.WENLU_BROKER_TEST_MODE ?? "").trim().toLowerCase();
+  if (testMode === "minimal" || testMode === "mock") {
+    console.warn("[broker] running in minimal test mode: LLM requests will not consume real tokens");
+    return new TestModeLlmProvider();
+  }
+
   const keyCheck = validateApiKey(env);
   if (keyCheck.error) {
     throw new Error(`[broker] LLM 密钥缺失，经纪无法启动：${keyCheck.error}`);

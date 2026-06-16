@@ -265,6 +265,7 @@ import {
   renderRiverbedBlock,
   buildDomainJudgementPacket,
   isRiverbedDomainId,
+  getRiverbedDomainEntry,
   type RiverbedDomainId,
   evaluateInterrupt,
   type InterruptIntent,
@@ -3546,6 +3547,122 @@ function buildRiverbedBlock(): string {
     return "";
   }
 }
+
+/** 「理解」面板·面向用户的领域分组。只暴露安全字段（域中文名/判断句/置信度/建议），隐藏内部代码。 */
+interface UserFacingRiverbedDomain {
+  /** 领域中文名（如"资源""认知"），不暴露 D11_RESOURCE 等内部 id。 */
+  label: string;
+  /** 该领域最高置信度 0-1。 */
+  confidence: number;
+  /** 置信度的定性表达，给用户看。 */
+  level: string;
+  /** 该领域几条人话判断（已去重、去术语）。 */
+  points: string[];
+  /** 可选的温和建议（若有）。 */
+  suggestion?: string;
+}
+
+interface UserFacingRiverbed {
+  overall: string;
+  domains: UserFacingRiverbedDomain[];
+}
+
+/** 把 0-1 置信度映射成给用户看的定性词。 */
+function riverbedConfidenceLevel(confidence: number): string {
+  if (confidence >= 0.75) return "比较确定";
+  if (confidence >= 0.5) return "逐渐清晰";
+  return "还在观察";
+}
+
+/** 技术运行态/内部机制黑话——这类“判断”是 AI 对自身环境的自诊断或兜底占位，绝不展示给用户。 */
+const RIVERBED_INTERNAL_OPS_RE =
+  /execute_command|inspect_native_apps|grow_sensor|evolve_self_code|read_file|write_file|spawn|ENOENT|EPERM|EACCES|powershell|\/bin\/sh|stdout|stderr|exit\s*code|连接器|服务端|Public Desktop|launchd|LaunchAgent|riverMain|gateway|broker|sqlite|postgres|userModel|belief「|stdin|sidecar/i;
+
+/**
+ * 判断一条河床判断文本是否“适合展示给用户”：
+ *  - 非空；
+ *  - 不是“兜底汇聚自…”这类内部机制占位；
+ *  - 不命中出站隐私筛查（screenOutboundText，挡 IP/源码/内部符号等泄露）；
+ *  - 不含技术运行态黑话（RIVERBED_INTERNAL_OPS_RE）。
+ */
+function isUserFacingInsight(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (t.startsWith("兜底汇聚自")) return false;
+  if (RIVERBED_INTERNAL_OPS_RE.test(t)) return false;
+  try {
+    if (screenOutboundText(t).leaked) return false;
+  } catch {
+    /* 筛查异常时按保守处理：不展示 */
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 把河床活跃节点整理成"面向用户、去术语"的理解卡片数据。
+ * 严守河床只读铁律：只读 packet 的安全字段（domain/confidence/reason/targetSummary/
+ * suggestedNextStep），不碰 verdict/severity/约束级别等内部字段，不引入副作用。
+ * 仅展示“真正关于用户、且不泄露平台内幕”的判断（见 isUserFacingInsight）。
+ */
+function buildUserFacingRiverbed(): UserFacingRiverbed {
+  const empty: UserFacingRiverbed = {
+    overall: "我对你的理解还在慢慢形成——多聊几句、让我多看看你在做的事，这里就会浮现出我眼里的你。",
+    domains: [],
+  };
+  try {
+    const rb = ensureRiverbed();
+    const active = getActiveRiverbedNodes(rb, new Date());
+    if (active.length === 0) return empty;
+
+    // 按领域分组，聚合置信度与人话判断。
+    const byDomain = new Map<
+      string,
+      { label: string; confidence: number; points: string[]; suggestion?: string }
+    >();
+    for (const node of active) {
+      const p = node.packet;
+      // 先取一条“适合展示”的人话判断；拿不到就整条跳过（不进分组、不抬置信度）。
+      const point = (p.reason || p.targetSummary || "").trim();
+      if (!isUserFacingInsight(point)) continue;
+
+      const entry = getRiverbedDomainEntry(p.domain);
+      const label = entry?.label ?? "其他";
+      const group = byDomain.get(label) ?? { label, confidence: 0, points: [] };
+      group.confidence = Math.max(group.confidence, clamp01(p.confidence));
+      if (!group.points.includes(point) && group.points.length < 3) {
+        group.points.push(point.length > 120 ? point.slice(0, 117) + "…" : point);
+      }
+      if (!group.suggestion && p.suggestedNextStep) {
+        const s = p.suggestedNextStep.trim();
+        if (s && isUserFacingInsight(s)) group.suggestion = s.length > 100 ? s.slice(0, 97) + "…" : s;
+      }
+      byDomain.set(label, group);
+    }
+
+    const domains: UserFacingRiverbedDomain[] = [...byDomain.values()]
+      .filter((g) => g.points.length > 0)
+      .sort((a, b) => b.confidence - a.confidence)
+      .map((g) => ({
+        label: g.label,
+        confidence: Math.round(g.confidence * 100) / 100,
+        level: riverbedConfidenceLevel(g.confidence),
+        points: g.points,
+        ...(g.suggestion ? { suggestion: g.suggestion } : {}),
+      }));
+
+    if (domains.length === 0) return empty;
+
+    const topLabels = domains.slice(0, 3).map((d) => `「${d.label}」`).join("");
+    const overall = `我对你已经形成了一些判断，主要集中在${topLabels}这几个方面。这是此刻我眼里的你，会随着我们的相处不断校准。`;
+    return { overall, domains };
+  } catch (e) {
+    console.error("[riverbed user-facing error]", e instanceof Error ? e.message : e);
+    return empty;
+  }
+}
+
+
 
 /**
  * Layer 1·自主判断联网信号：渲染"本地知识对当前话题的覆盖度 + 当前出网能力边界"，
@@ -7181,19 +7298,37 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     try {
       const rb = ensureRiverbed();
       const active = getActiveRiverbedNodes(rb, new Date());
-      let summary = "";
-      if (active.length > 0) {
-        const agg = aggregateDomainJudgementPackets(active.map((n) => n.packet));
-        summary = renderRiverbedBlock(active, agg);
-      }
+      const view = buildUserFacingRiverbed();
+      // 向后兼容：summary 仍给一段可读纯文本（老前端直接显示也不会露内部术语）。
+      const summaryText =
+        view.domains.length > 0
+          ? `${view.overall}\n\n` +
+            view.domains
+              .map(
+                (d) =>
+                  `· ${d.label}（${d.level}）\n` +
+                  d.points.map((pt) => `  ${pt}`).join("\n") +
+                  (d.suggestion ? `\n  建议：${d.suggestion}` : ""),
+              )
+              .join("\n\n")
+          : view.overall;
       sendJson(res, 200, {
         ok: true,
-        summary: summary || "（河床尚无活跃判断节点）",
+        overall: view.overall,
+        domains: view.domains,
+        summary: summaryText,
         updatedAt: rb.lastSenseCycle ? new Date().toISOString() : null,
         nodeCount: active.length,
       });
     } catch (e) {
-      sendJson(res, 200, { ok: false, summary: "河床渲染异常", updatedAt: null, nodeCount: 0 });
+      sendJson(res, 200, {
+        ok: false,
+        overall: "",
+        domains: [],
+        summary: "河床渲染异常",
+        updatedAt: null,
+        nodeCount: 0,
+      });
     }
     return;
   }
