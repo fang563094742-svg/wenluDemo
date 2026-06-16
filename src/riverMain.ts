@@ -243,6 +243,18 @@ function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
     ledger.append(entry).catch(() => {});
   } catch {}
 }
+// P2-7 (chronotopic 降级版): 只用 temporalDecay 纯函数, 不调感知 (避开 P0-2 方向冲突).
+// belief / prediction 读出时按"距今时间"实时算 decay, 不入库, 不存历史 signature.
+// 半衰期 7 天: age=0 → 1.0, age=7d → 0.5, age=30d → 0.05.
+import { temporalDecay } from "./chronotopic/chronotopic-decay.js";
+const BELIEF_HALFLIFE_MS = 7 * 24 * 3600 * 1000;
+function decayConfidence(rawConfidence, createdAtIso) {
+  if (typeof rawConfidence !== "number" || !Number.isFinite(rawConfidence)) return 0;
+  const ageMs = Date.now() - Date.parse(createdAtIso ?? new Date().toISOString());
+  const factor = temporalDecay(Math.max(0, ageMs), { halfLifeMs: BELIEF_HALFLIFE_MS });
+  return rawConfidence * factor;
+}
+
 
 
 const execFileAsync = promisify(execFile);
@@ -4632,7 +4644,13 @@ __name2(buildCommitmentLookback, "buildCommitmentLookback");
 function buildConsciousness() {
   const activeBeliefs = mind.beliefs.filter((b) => !b.correctedBy);
   const correctedCount = mind.beliefs.length - activeBeliefs.length;
-  const beliefsSummary = activeBeliefs.length > 0 ? activeBeliefs.slice(-15).map((b) => `[${b.dimension}|${Math.round(b.confidence * 100)}%|${b.source}] ${b.content}`).join("\n") + (correctedCount > 0 ? `
+  // P2-7: 读 belief 时实时 decay (按 createdAt + 7d 半衰期). 老 belief 没有 rawConfidence
+  // 字段则退化为 confidence (即首次接线后才开始算 decay, 不破坏历史数据).
+  const beliefsSummary = activeBeliefs.length > 0 ? activeBeliefs.slice(-15).map((b) => {
+    const raw = typeof b.rawConfidence === "number" ? b.rawConfidence : b.confidence;
+    const decayed = decayConfidence(raw, b.createdAt);
+    return `[${b.dimension}|${Math.round(decayed * 100)}%|${b.source}] ${b.content}`;
+  }).join("\n") + (correctedCount > 0 ? `
 \uFF08\u53E6\u6709 ${correctedCount} \u6761\u5DF2\u4FEE\u6B63\u7684\u65E7\u5224\u65AD\u7559\u75D5\u5B58\u6863\uFF09` : "") : "\uFF08\u6682\u65E0\uFF09";
   const knowledgeSummary = mind.knowledge.length > 0 ? mind.knowledge.slice(-10).map((k) => `[${k.source}] ${k.content.slice(0, 80)}`).join("\n") : "\uFF08\u6682\u65E0\uFF09";
   const activeInsights = mind.userModel.filter((u) => !u.supersededBy);
@@ -7036,11 +7054,15 @@ ${text.slice(0, 4e3)}`;
       }
       case "add_belief": {
         const rawConf = typeof args.confidence === "number" ? args.confidence : 0.5;
+        const _normalizedConf = rawConf > 1 ? rawConf / 100 : rawConf;
         const b = {
           id: `b${Date.now()}`,
           dimension: args.dimension ?? "state",
           content: String(args.content ?? ""),
-          confidence: rawConf > 1 ? rawConf / 100 : rawConf,
+          confidence: _normalizedConf,
+          // P2-7: 保留 raw, 之后读取时 decayConfidence(raw, createdAt) 实时算衰减.
+          // 不存历史 signature, 不入 ChronotopicState, 零侵入。
+          rawConfidence: _normalizedConf,
           source: args.source ?? "inferred",
           evidence: String(args.evidence ?? ""),
           createdAt: (/* @__PURE__ */ new Date()).toISOString()
