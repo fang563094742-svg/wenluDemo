@@ -32,6 +32,7 @@ interface LdxpStoredSessionMetadata {
   remoteTradeNo: string;
   payUrl: string;
   payPageUrl: string | null;
+  alipayAssignUrl: string | null;
   orderNoHint: string | null;
   subject: string | null;
   goodsKey: string | null;
@@ -151,6 +152,7 @@ function readStoredSession(order: MembershipOrder): LdxpStoredSessionMetadata | 
     remoteTradeNo: value.remoteTradeNo,
     payUrl: value.payUrl,
     payPageUrl: typeof value.payPageUrl === 'string' ? value.payPageUrl : null,
+    alipayAssignUrl: typeof value.alipayAssignUrl === 'string' ? value.alipayAssignUrl : null,
     orderNoHint: typeof value.orderNoHint === 'string' ? value.orderNoHint : null,
     subject: typeof value.subject === 'string' ? value.subject : null,
     goodsKey: typeof value.goodsKey === 'string' ? value.goodsKey : null,
@@ -226,6 +228,7 @@ function buildStoredSessionFromRemote(input: {
     remoteTradeNo: input.remoteTradeNo,
     payUrl: input.payUrl,
     payPageUrl: input.artifacts?.payPageUrl ?? null,
+    alipayAssignUrl: input.artifacts?.alipayAssignUrl ?? null,
     orderNoHint: input.artifacts?.outTradeNo ?? input.remoteTradeNo,
     subject: input.artifacts?.subject ?? null,
     goodsKey: good?.goods_key ?? input.resolvedGoods.goodsKey,
@@ -339,7 +342,13 @@ async function buildFallbackQrPayload(input: {
   storedSession: LdxpStoredSessionMetadata | null;
   artifacts: LdxpPaymentPageArtifacts | null;
 }): Promise<LdxpQrExtractionResult | null> {
-  const payTarget = input.artifacts?.payPageUrl ?? input.storedSession?.payPageUrl ?? input.storedSession?.payUrl ?? null;
+  const payTarget =
+    input.artifacts?.alipayAssignUrl ??
+    input.storedSession?.alipayAssignUrl ??
+    input.artifacts?.payPageUrl ??
+    input.storedSession?.payPageUrl ??
+    input.storedSession?.payUrl ??
+    null;
   if (!payTarget) {
     return null;
   }
@@ -382,6 +391,20 @@ async function maybeExtractQr(orderId: string, payTargetUrl: string | null, extr
   return extracted;
 }
 
+function resolveQrExtractTarget(
+  storedSession: LdxpStoredSessionMetadata | null,
+  artifacts: LdxpPaymentPageArtifacts | null,
+): string | null {
+  return (
+    artifacts?.alipayAssignUrl ??
+    storedSession?.alipayAssignUrl ??
+    artifacts?.payPageUrl ??
+    storedSession?.payPageUrl ??
+    storedSession?.payUrl ??
+    null
+  );
+}
+
 export async function ensureLdxpCheckoutSession(
   order: MembershipOrder,
   options: EnsureCheckoutSessionOptions = {},
@@ -389,13 +412,13 @@ export async function ensureLdxpCheckoutSession(
   const merchantConfig = loadLdxpConfig();
   const storefrontConfig = loadLdxpStorefrontConfig();
 
-  if (!merchantConfig.enabled || !storefrontConfig.enabled) {
+  if (!storefrontConfig.enabled) {
     return buildCheckoutSessionView({
       order,
       storedSession: null,
       artifacts: null,
       qr: null,
-      reason: '链动小铺前台支付尚未配置完成。',
+      reason: '链动小铺前台支付尚未配置完成，前端会继续自动刷新当前订单。',
     });
   }
 
@@ -409,7 +432,7 @@ export async function ensureLdxpCheckoutSession(
       storedSession: null,
       artifacts: null,
       qr: readQrCache(order.id),
-      reason: '当前订单还没有生成远端支付会话。',
+      reason: '当前订单还没有生成远端支付会话，前端会自动刷新当前订单。',
     });
   }
 
@@ -480,9 +503,10 @@ export async function ensureLdxpCheckoutSession(
   const artifacts = storedSession?.payUrl
     ? await buildArtifacts(storedSession.payUrl, Boolean(options.refreshArtifacts))
     : null;
+  const qrExtractTarget = resolveQrExtractTarget(storedSession, artifacts);
   let qr: LdxpQrExtractionResult | null = null;
   if (Boolean(options.extractQr)) {
-    qr = await maybeExtractQr(order.id, storedSession?.payPageUrl ?? storedSession?.payUrl ?? null, true);
+    qr = await maybeExtractQr(order.id, qrExtractTarget, true);
     if (!qr?.qrDataUrl) {
       const fallbackQr = await buildFallbackQrPayload({
         order: latestOrder,
@@ -495,7 +519,7 @@ export async function ensureLdxpCheckoutSession(
       }
     }
   } else {
-    qr = await maybeExtractQr(order.id, storedSession?.payPageUrl ?? storedSession?.payUrl ?? null, false);
+    qr = await maybeExtractQr(order.id, qrExtractTarget, false);
   }
 
   if (storedSession && qr?.qrDataUrl) {

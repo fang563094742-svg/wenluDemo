@@ -192,6 +192,20 @@ async function decoratePaymentSessionForClient(
     (rawQr && typeof rawQr.mobilePayUrl === 'string' && rawQr.mobilePayUrl.trim()) ||
     (rawQr && typeof rawQr.qrUrl === 'string' && rawQr.qrUrl.trim()) ||
     null;
+
+  const hasOriginalQrDataUrl =
+    typeof response.qrDataUrl === 'string' &&
+    response.qrDataUrl.trim().startsWith('data:image/');
+
+  if (hasOriginalQrDataUrl) {
+    return mobileBridgeUrl
+      ? {
+          ...response,
+          mobileBridgeUrl,
+        }
+      : response;
+  }
+
   const qrPayloadValue = rawMobilePayUrl || mobileBridgeUrl;
 
   if (!qrPayloadValue) {

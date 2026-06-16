@@ -12,6 +12,7 @@ export interface LdxpGatewayForm {
 export interface LdxpPaymentPageArtifacts {
   payUrl: string;
   payPageUrl: string | null;
+  alipayAssignUrl: string | null;
   gatewayForm: LdxpGatewayForm | null;
   outTradeNo: string | null;
   subject: string | null;
@@ -245,6 +246,45 @@ async function fetchHtmlWithChallenge(
   return { response, html, cookieHeader };
 }
 
+async function resolveAlipayAssignUrl(
+  form: LdxpGatewayForm | null,
+  refererUrl: string | null,
+): Promise<string | null> {
+  if (!form?.action) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(form.action, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Origin: 'https://pay.ldxp.cn',
+        ...(refererUrl ? { Referer: refererUrl } : {}),
+      },
+      body: buildGatewayFormPayload(form),
+    });
+
+    const location = response.headers.get('location');
+    if (location) {
+      return new URL(location, form.action).toString();
+    }
+
+    const finalUrl = response.url || '';
+    if (/unitradeprod\.alipay\.com|excashier\.alipay\.com/i.test(finalUrl)) {
+      return finalUrl;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function extractFormAttribute(html: string, name: string): string | null {
   const single = html.match(new RegExp(`<form[^>]*\\s${name}='([^']*)'`, 'i'))?.[1];
   if (single) return decodeHtmlEntities(single);
@@ -319,10 +359,12 @@ export async function fetchLdxpPaymentPageArtifacts(payUrl: string): Promise<Ldx
       }
     : null;
   const meta = parseBizContentPayload(fields);
+  const alipayAssignUrl = await resolveAlipayAssignUrl(gatewayForm, payPageUrl);
 
   return {
     payUrl,
     payPageUrl,
+    alipayAssignUrl,
     gatewayForm,
     outTradeNo: meta.outTradeNo,
     subject: meta.subject,
