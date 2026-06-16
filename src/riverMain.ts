@@ -9588,6 +9588,26 @@ async function main() {
     process.exit(1);
   }
   reflux.startDistillFallbackTimer();
+  // P-真6: 注入反哺管线 LLM (4 个角色: 蒸馏分类/分发精排/语义去重/软评审).
+  // 注入后 reflux/distiller, dispatcher, deduplicator, verifier 默认实例会经 LLM 提质,
+  // 超出 Pipeline_LLM_Budget 部分自动确定性降级 (fail-open).
+  try {
+    reflux.injectRefluxLlm(llm);
+  } catch (e) {
+    console.warn(`[\u95EE\u8DEF] reflux.injectRefluxLlm \u5931\u8D25 (\u4ECD\u53EF\u8FD0\u884C, \u5168\u8DEF\u786E\u5B9A\u6027\u964D\u7EA7): ${e instanceof Error ? e.message : e}`);
+  }
+  // 把 ConnectorBridge 注入 reflux verifier, 让 connector-verified 路径走起来.
+  try {
+    reflux.hookConnectorAdapter(connectorBridge);
+  } catch (e) {
+    console.warn(`[\u95EE\u8DEF] reflux.hookConnectorAdapter \u5931\u8D25 (\u4ECC\u8FD0\u884C\u4F46\u53EA\u80FD\u8D70 server-verified): ${e instanceof Error ? e.message : e}`);
+  }
+  // 启动状态机定时扫描器 (推进 evidence_pending → proven → active, 静默继承降分, 长期低分淘汰).
+  try {
+    reflux.startStateMachineSweepers();
+  } catch (e) {
+    console.warn(`[\u95EE\u8DEF] reflux.startStateMachineSweepers \u5931\u8D25: ${e instanceof Error ? e.message : e}`);
+  }
   await maybeImportLegacyBrain();
   mind = await loadMind();
   netEgress.healthTable.restore(mind.egressHealth);

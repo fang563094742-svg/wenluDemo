@@ -50,6 +50,31 @@ import {
   type TopUpResult,
 } from "./onboarding.js";
 import { resolveRefluxConfig, type RefluxConfig } from "./config.js";
+import {
+  createDeduplicator,
+  type Deduplicator,
+} from "./deduplicator.js";
+import {
+  createClassifier,
+  type Classifier,
+} from "./classifier.js";
+import {
+  createVerifier,
+  type Verifier,
+  type ConnectorLike,
+} from "./verifier.js";
+import {
+  createFeedbackWriter,
+  type FeedbackWriter,
+} from "./feedbackWriter.js";
+import {
+  createLlmDistillClassifier,
+  createLlmTopKPicker,
+  createLlmDedupSemanticJudge,
+  createLlmSoftSkillReviewer,
+  injectRefluxLlm,
+} from "./llmAdapters.js";
+export { injectRefluxLlm };
 import type {
   HarvestSignal,
   InvocationEvent,
@@ -73,6 +98,11 @@ let _dispatcher: Dispatcher | null = null;
 let _activeReuse: ActiveReuse | null = null;
 let _onboarding: Onboarding | null = null;
 let _config: RefluxConfig | null = null;
+let _deduplicator: Deduplicator | null = null;
+let _classifier: Classifier | null = null;
+let _verifier: Verifier | null = null;
+let _feedbackWriter: FeedbackWriter | null = null;
+let _connectorAdapter: ConnectorLike | null = null;
 
 function config(): RefluxConfig {
   if (!_config) _config = resolveRefluxConfig();
@@ -85,16 +115,122 @@ export function harvester(): Harvester {
   return _harvester;
 }
 
-/** 默认 Distiller（蒸馏，复用 skill-flywheel.distillSkill）。 */
+/** 默认 Distiller（蒸馏，复用 skill-flywheel.distillSkill；注入 LLM 蒸馏分类器，未注入 llm 时降级）。 */
 export function distiller(): Distiller {
-  if (!_distiller) _distiller = createDistiller({ config: config() });
+  if (!_distiller) {
+    _distiller = createDistiller({
+      config: config(),
+      llm: createLlmDistillClassifier(),
+    });
+  }
   return _distiller;
 }
 
-/** 默认 Dispatcher（检索分发，走真实 PG SkillRepo；无 LLM 挑选器 → 确定性降级）。 */
+/**
+ * 默认 Dispatcher（检索分发，走真实 PG SkillRepo；注入 LLM top-k 精排器 + Verifier 用于
+ * settleRenderedVariant 重渲染闭环；未注入 llm 时挑选器自动确定性降级）。
+ */
 export function dispatcher(): Dispatcher {
-  if (!_dispatcher) _dispatcher = createDispatcher({ repo: createPgSkillRepo(), config: config() });
+  if (!_dispatcher) {
+    _dispatcher = createDispatcher({
+      repo: createPgSkillRepo(),
+      config: config(),
+      picker: createLlmTopKPicker(),
+      verifier: verifier(),
+    });
+  }
   return _dispatcher;
+}
+
+/** 默认 Deduplicator（去重，注入 LLM 语义比对器；未注入 llm 时降级 jaccard）。 */
+export function deduplicator(): Deduplicator {
+  if (!_deduplicator) {
+    _deduplicator = createDeduplicator({
+      repo: createPgSkillRepo(),
+      config: config(),
+      judge: createLlmDedupSemanticJudge(),
+    });
+  }
+  return _deduplicator;
+}
+
+/**
+ * 默认 Verifier（验证，注入连接器 + LLM 软评审器）。
+ * 连接器适配器经 hookConnectorAdapter / setConnectorAdapter 注入；
+ * 未注入连接器时 verifyExecutable 走服务端 server-verified 路径 / 软评审照常工作。
+ */
+export function verifier(): Verifier {
+  if (!_verifier) {
+    _verifier = createVerifier({
+      config: config(),
+      connector: _connectorAdapter ?? undefined,
+      softReviewer: createLlmSoftSkillReviewer(),
+    });
+  }
+  return _verifier;
+}
+
+/** 默认 Classifier（状态机 + 双门，整合 deduplicator/verifier）。 */
+export function classifier(): Classifier {
+  if (!_classifier) {
+    _classifier = createClassifier({
+      skillRepo: createPgSkillRepo(),
+      deduplicator: deduplicator(),
+      verifier: verifier(),
+      config: config(),
+    });
+  }
+  return _classifier;
+}
+
+/** 默认 FeedbackWriter（回写 / 静默 / 淘汰，整合 classifier 用于晋升评估）。 */
+export function feedbackWriter(): FeedbackWriter {
+  if (!_feedbackWriter) {
+    _feedbackWriter = createFeedbackWriter({
+      skillRepo: createPgSkillRepo(),
+      classifier: classifier(),
+      config: config(),
+    });
+  }
+  return _feedbackWriter;
+}
+
+/**
+ * 注入连接器适配器（riverMain bootstrap 把 ConnectorBridge 实例适配为 ConnectorLike 后调用）。
+ * 必须在 verifier() / classifier() / feedbackWriter() 首次被构造前调用，
+ * 否则首次构造会用 null connector（仅 server-verified 路径可用）。
+ */
+export function setConnectorAdapter(adapter: ConnectorLike | null): void {
+  _connectorAdapter = adapter;
+  // 注入后强制重置 verifier / classifier / feedbackWriter, 让下一次访问重建并带上连接器.
+  _verifier = null;
+  _classifier = null;
+  _feedbackWriter = null;
+  _dispatcher = null; // dispatcher 持有 verifier 引用, 同步重置.
+}
+
+/**
+ * 把任意 connectorBridge 风格对象适配为 ConnectorLike 并注入.
+ * 期望 bridge 至少实现 request(op, args, timeoutMs) + isOnline() + activeInfo().
+ */
+export function hookConnectorAdapter(bridge: {
+  request: <T = unknown>(op: string, args: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
+  isOnline?: () => boolean;
+  activeInfo?: () => { platform: string; arch?: string; machineLabel?: string } | null;
+}): void {
+  const adapter: ConnectorLike = {
+    request: <T = unknown>(op: "exec", args: Record<string, unknown>, timeoutMs?: number) =>
+      bridge.request<T>(op as string, args, timeoutMs),
+    isOnline: bridge.isOnline ? () => bridge.isOnline!() : undefined,
+    activeInfo: bridge.activeInfo
+      ? () => {
+          const info = bridge.activeInfo!();
+          if (!info) return null;
+          return { platform: info.platform, arch: info.arch, machineLabel: info.machineLabel };
+        }
+      : undefined,
+  };
+  setConnectorAdapter(adapter);
 }
 
 /**
@@ -405,6 +541,91 @@ export function stopDistillFallbackTimer(): void {
     }
   } catch (err) {
     swallow("stopDistillFallbackTimer", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 状态机定时扫描器（Classifier.tick 等价 + FeedbackWriter 静默/淘汰扫描）
+// 频率：Elimination_Window_ms / 4（默认 30 天 / 4 = 7.5 天太慢）→ 兜底 6 小时一次。
+// ─────────────────────────────────────────────────────────────────
+
+let _sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 定时扫描"卡在 evidence_pending / 已 proven 但未触发 evaluate"的候选, 推进状态机. */
+async function sweepClassifierEvaluations(): Promise<void> {
+  try {
+    const { query } = await import("../db/pool.js");
+    // 取一批 status='proven' 的候选，逐一 evaluate（双门 + 升级判定）。
+    // 限 50 条/轮，避免单次扫描压垮 DB。
+    const res = await query<{ id: string }>(
+      `SELECT id FROM skill_candidate WHERE status = 'proven' AND merged_into IS NULL LIMIT 50`,
+    );
+    const cls = classifier();
+    for (const row of res.rows) {
+      try {
+        await cls.evaluate(row.id);
+      } catch (e) {
+        swallow(`sweep.classifier.evaluate id=${row.id.slice(0, 8)}`, e);
+      }
+    }
+  } catch (err) {
+    swallow("sweepClassifierEvaluations", err);
+  }
+}
+
+/**
+ * 启动状态机定时扫描器：
+ *  1) classifier.evaluate 推进 proven → active / pending_review / rejected
+ *  2) feedbackWriter.scanSilentInheritance 静默继承降分
+ *  3) feedbackWriter.scanEliminations 长期低分淘汰
+ *
+ * 频率：默认每 6 小时跑一轮（足以应对 P95 反馈窗口；不阻塞主呼吸）。可经
+ * REFLUX_SWEEP_INTERVAL_MIN 环境变量覆盖。定时器 unref，不吊住进程退出。幂等。
+ */
+export function startStateMachineSweepers(): void {
+  try {
+    if (_sweepTimer) return;
+    const overrideMin = Number(process.env.REFLUX_SWEEP_INTERVAL_MIN);
+    const intervalMs =
+      Number.isFinite(overrideMin) && overrideMin > 0
+        ? overrideMin * 60_000
+        : 6 * 60 * 60_000; // 默认 6 小时
+    const tick = async (): Promise<void> => {
+      // 三件事各自独立 try, 互不影响.
+      await sweepClassifierEvaluations();
+      try {
+        await feedbackWriter().scanSilentInheritance();
+      } catch (e) {
+        swallow("sweep.feedbackWriter.scanSilentInheritance", e);
+      }
+      try {
+        await feedbackWriter().scanEliminations();
+      } catch (e) {
+        swallow("sweep.feedbackWriter.scanEliminations", e);
+      }
+    };
+    _sweepTimer = setInterval(() => {
+      void tick();
+    }, intervalMs);
+    (_sweepTimer as unknown as { unref?: () => void }).unref?.();
+    // 启动后过 5 分钟先来一轮（让 dev 也能很快看到效果，不必等 6 小时）。
+    setTimeout(() => {
+      void tick();
+    }, 5 * 60_000).unref?.();
+  } catch (err) {
+    swallow("startStateMachineSweepers", err);
+  }
+}
+
+/** 停止状态机定时扫描器（供测试/优雅关停）。 */
+export function stopStateMachineSweepers(): void {
+  try {
+    if (_sweepTimer) {
+      clearInterval(_sweepTimer);
+      _sweepTimer = null;
+    }
+  } catch (err) {
+    swallow("stopStateMachineSweepers", err);
   }
 }
 
