@@ -232,8 +232,8 @@ export class ResilientLlm implements LLM_Provider {
           );
         }
         if (meta.isRateLimited) {
-          lastRateLimit = { retryAfterMs: meta.retryAfterMs, status: meta.status, detail: msg };
-          this.onEvent?.({ kind: "rate-limit", attempt, detail: msg.slice(0, 160), retryAfterMs: meta.retryAfterMs, status: meta.status ?? 429 });
+          lastRateLimit = { retryAfterMs: meta.retryAfterMs, status: meta.status ?? undefined, detail: msg };
+          this.onEvent?.({ kind: "rate-limit", attempt, detail: msg.slice(0, 160), retryAfterMs: meta.retryAfterMs ?? undefined, status: meta.status ?? 429 });
         } else {
           const isTimeout = /超时|timeout|abort/i.test(msg);
           this.onEvent?.({ kind: isTimeout ? "timeout" : "retry", attempt, detail: msg.slice(0, 160) });
