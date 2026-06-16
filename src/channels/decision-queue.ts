@@ -17,6 +17,7 @@ export function enqueueDecision(q: PendingDecision[], d: PendingDecision): Pendi
 
 /** 结算（不可变）。把 pending 项置 resolved，记录选择与时间。已结算项不动。 */
 export function resolveDecision(q: PendingDecision[], id: string, choice: string[]): PendingDecision[] {
+  const now = new Date().toISOString();
   return (q ?? []).map((d) => {
     if (d.id !== id) return d;
     if (d.status !== "pending") return d;
@@ -24,7 +25,9 @@ export function resolveDecision(q: PendingDecision[], id: string, choice: string
       ...d,
       status: "resolved" as const,
       resolvedChoice: Array.isArray(choice) ? choice : [],
-      resolvedAt: new Date().toISOString(),
+      resolvedAt: now,
+      reflowChannelId: d.originChannelId,
+      reflowMessageId: d.originMessageId,
     };
   });
 }
@@ -37,4 +40,21 @@ export function pendingCount(q: PendingDecision[]): number {
 /** 某频道的待裁决项。 */
 export function pendingForChannel(q: PendingDecision[], channelId: string): PendingDecision[] {
   return (q ?? []).filter((d) => d.status === "pending" && d.channelId === channelId);
+}
+
+/**
+ * 过期某来源频道下的全部待裁决项（不可变）。把该来源频道发起、仍 pending 的裁决置 expired。
+ * 返回新队列与过期数量。本地未提交代码引入，从删除前（06-15 16:26）缓存恢复。
+ */
+export function expireDecisionsForChannel(
+  q: PendingDecision[],
+  originChannelId: string,
+): { queue: PendingDecision[]; expiredCount: number } {
+  let expiredCount = 0;
+  const queue = (q ?? []).map((d) => {
+    if (d.status !== "pending" || d.originChannelId !== originChannelId) return d;
+    expiredCount += 1;
+    return { ...d, status: "expired" as const, resolvedAt: new Date().toISOString() };
+  });
+  return { queue, expiredCount };
 }

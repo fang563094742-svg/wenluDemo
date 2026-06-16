@@ -22,6 +22,7 @@ import {
   CHANNELS_SCHEMA_VERSION,
   DECISIONS_CHANNEL_ID,
   NOTIFICATIONS_CHANNEL_ID,
+  REFLECT_CHANNEL_ID,
   DEFAULT_USER_CHANNEL_ID,
 } from "./channel-types.js";
 import { emptyChannels } from "./channel-store.js";
@@ -64,7 +65,7 @@ function mapLegacyChannel(topicId: string, category: string | undefined): {
     case "calibration":
       return { channelId: DECISIONS_CHANNEL_ID, kind: "decision", source: "calibration" };
     case "reflect":
-      return { channelId: NOTIFICATIONS_CHANNEL_ID, kind: "notice", source: "reflect" };
+      return { channelId: REFLECT_CHANNEL_ID, kind: "notice", source: "reflect" };
     case "debt":
       return { channelId: NOTIFICATIONS_CHANNEL_ID, kind: "notice", source: "debt" };
     case "event":

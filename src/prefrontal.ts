@@ -40,7 +40,8 @@ const RECENT_USER_MSG_MS = 60_000;
  */
 export function prefrontal(
   state: InteractionState,
-  now: number = Date.now()
+  now: number = Date.now(),
+  degradationLevel: number = 0
 ): PrefrontalDecision {
   const silentMs = getSilentDuration(state, now);
   const userRecentMs = getUserMessageAge(state, now);
@@ -83,7 +84,7 @@ export function prefrontal(
     };
   }
 
-  if (state.consecutiveIdleBreaths >= IDLE_SKIP_THRESHOLD) {
+  if (state.consecutiveIdleBreaths >= IDLE_SKIP_THRESHOLD && degradationLevel < 1) {
     return {
       action: "skip",
       priority: "low",

@@ -19,6 +19,7 @@ export {
   CHANNELS_SCHEMA_VERSION,
   DECISIONS_CHANNEL_ID,
   NOTIFICATIONS_CHANNEL_ID,
+  REFLECT_CHANNEL_ID,
   DEFAULT_USER_CHANNEL_ID,
   newMessageId,
   newChannelId,
@@ -47,6 +48,7 @@ export {
 export {
   enqueueDecision,
   resolveDecision,
+  expireDecisionsForChannel,
   pendingCount,
   pendingForChannel,
 } from "./decision-queue.js";

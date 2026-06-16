@@ -208,3 +208,6 @@ data/capability-line/million-learning-line.json
 # 工程源码：验证引擎（断言/证据采集），不可被上面的运行期 verification 规则误伤
 !src/verification/
 !src/verification/**
+
+# 恢复工作目录(缓存导出/补丁脚本/备份文件,绝不入库)
+.recover_tmp/

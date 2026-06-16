@@ -455,7 +455,7 @@ authRouter.post("/password/register", async (req: Request, res: Response) => {
         return;
       }
     }
-    console.error("[auth/password/register] error:", err);
+    console.error("[auth/password/register] error:", err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: "注册失败，请稍后重试" });
   }
 });
@@ -518,7 +518,7 @@ authRouter.post("/password/login", async (req: Request, res: Response) => {
       user: toUserView(user),
     });
   } catch (err) {
-    console.error("[auth/password/login] error:", err);
+    console.error("[auth/password/login] error:", err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: "登录失败，请稍后重试" });
   }
 });

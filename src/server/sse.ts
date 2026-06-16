@@ -27,6 +27,7 @@
  */
 
 import type { ServerResponse } from "node:http";
+import { screenOutboundText } from "../sovereign/privacy-boundary.js";
 
 import type {
   OrchestratorEvent,
@@ -192,6 +193,13 @@ export class SseHub {
   private readonly heartbeatMs: number;
   /** 心跳定时器；仅在存在连接时运行，最后一个连接离开即停。 */
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  // 运行统计（本地未提交代码引入，从删除前缓存恢复）——供 /health runtimeHealthPayload 读取。
+  private connectCount = 0;
+  private disconnectCount = 0;
+  private broadcastCount = 0;
+  private lastConnectAt: string | null = null;
+  private lastDisconnectAt: string | null = null;
+  private lastBroadcastAt: string | null = null;
 
   constructor(options: SseHubOptions = {}) {
     this.heartbeatMs = options.heartbeatMs ?? 15_000;
@@ -200,6 +208,27 @@ export class SseHub {
   /** 当前活跃连接数。 */
   clientCount(): number {
     return this.clients.size;
+  }
+
+  /** 运行统计快照（连接/断开/广播计数与最近时间）。本地未提交代码引入，从删除前缓存恢复。 */
+  stats(): {
+    clients: number;
+    connectCount: number;
+    disconnectCount: number;
+    broadcastCount: number;
+    lastConnectAt: string | null;
+    lastDisconnectAt: string | null;
+    lastBroadcastAt: string | null;
+  } {
+    return {
+      clients: this.clients.size,
+      connectCount: this.connectCount,
+      disconnectCount: this.disconnectCount,
+      broadcastCount: this.broadcastCount,
+      lastConnectAt: this.lastConnectAt,
+      lastDisconnectAt: this.lastDisconnectAt,
+      lastBroadcastAt: this.lastBroadcastAt,
+    };
   }
 
   /**
@@ -224,6 +253,8 @@ export class SseHub {
     res.write(`: connected\n\n`);
 
     this.clients.add(res);
+    this.connectCount += 1;
+    this.lastConnectAt = new Date().toISOString();
 
     const unregister = (): void => this.removeClient(res);
     res.on("close", unregister);
@@ -236,6 +267,8 @@ export class SseHub {
   /** 注销一个连接：从集合移除、结束响应、必要时停掉心跳。 */
   removeClient(res: ServerResponse): void {
     if (!this.clients.delete(res)) return;
+    this.disconnectCount += 1;
+    this.lastDisconnectAt = new Date().toISOString();
     if (!res.writableEnded) {
       try {
         res.end();
@@ -254,7 +287,15 @@ export class SseHub {
    */
   broadcast(frame: SseFrame): void {
     if (this.clients.size === 0) return;
-    const text = serializeSseFrame(frame.event, frame.data);
+    // SSE 双保险：对最终 JSON 字符串再过一次 screenOutboundText, 兜住源头未筛查的载荷。
+    const rawText = serializeSseFrame(frame.event, frame.data);
+    const screened = screenOutboundText(rawText);
+    const text = screened.leaked ? serializeSseFrame(frame.event, { redacted: true, message: screened.safeText }) : rawText;
+    if (screened.leaked) {
+      console.warn(`[sse:redacted] event=${frame.event} matched=${screened.matched ?? "?"}`);
+    }
+    this.broadcastCount += 1;
+    this.lastBroadcastAt = new Date().toISOString();
     // 复制成数组再迭代：注销会修改底层 Set，避免迭代期改集合。
     for (const res of [...this.clients]) {
       this.writeTo(res, text);
