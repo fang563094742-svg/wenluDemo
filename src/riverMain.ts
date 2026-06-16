@@ -195,6 +195,31 @@ import {
 } from "./prefrontal.js";
 import { createVerificationEngine, createEvidenceCollector } from "./verification/index.js";
 import { validateReflection } from "./judgment/metaReflection.js";
+// P1-4 (budgetGovernor): LLM/网络/磁盘资源软门. 超限只 log warn, 不阻断;
+// 数据沉淀 1-2 周后再调阈值. 是"防失控"前置, 不替代当前的 ResilientLlm 机制。
+import { createBudgetGovernor } from "./runtime/budgetGovernor.js";
+const budget = createBudgetGovernor({
+  buckets: {
+    "llm-tokens":     { allocated: 5_000_000, refillRate: 50_000 }, // 5M token, 每分钟回 50K
+    "network-calls":  { allocated: 5000,      refillRate: 50 },     // 5K 次, 每分钟回 50
+    "disk-writes":    { allocated: 10000,     refillRate: 100 },    // 10K 次, 每分钟回 100
+    "cpu-time-ms":    { allocated: 600_000,   refillRate: 10_000 }, // 10 分钟 CPU
+    "destructive-ops":{ allocated: 50,        refillRate: 0 },      // 破坏性 50 次
+  },
+});
+let _budgetWarnedTier = "normal";
+function budgetCheck(dim, amount = 1, label = "") {
+  const r = budget.acquire({ dimension: dim, amount, priority: "normal" });
+  if (r.tier !== _budgetWarnedTier) {
+    console.warn(`[budget] tier 切换: ${_budgetWarnedTier} -> ${r.tier} (${dim} ${label})`);
+    _budgetWarnedTier = r.tier;
+  }
+  if (r.suggestion) {
+    console.warn(`[budget:suggest] ${r.suggestion.action} - ${r.suggestion.reason}`);
+  }
+  return r;
+}
+
 const execFileAsync = promisify(execFile);
 void execFileAsync;
 debugLog = __name2(
@@ -9190,6 +9215,23 @@ async function main() {
   const useLlmBroker = brokerUrl.length > 0 && brokerToken.length > 0;
   if (useLlmBroker) {
     llm = new BrokerLlmProvider(brokerUrl, brokerToken);
+    // P1-4: broker 路径同样做 budget soft-gate (Proxy 拦截 complete/completeWithTools).
+    {
+      const _rawLlm = llm;
+      const _wrapWithBudget = (method) => async (req) => {
+        budgetCheck("llm-tokens", 1000, method);
+        return _rawLlm[method](req);
+      };
+      llm = new Proxy(_rawLlm, {
+        get(target, prop) {
+          if (prop === "complete" || prop === "completeWithTools") {
+            return _wrapWithBudget(prop);
+          }
+          const v = target[prop];
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      });
+    }
     console.log(
       "[\u95EE\u8DEF] LLM \u7ECF\u7EAA\u6A21\u5F0F\uFF1A\u7ECF Broker \u8C03\u7528\uFF0C\u5927\u8111\u8FDB\u7A0B\u4E0D\u6301 LLM \u5BC6\u94A5"
     );
@@ -9282,6 +9324,21 @@ async function main() {
         breakerThreshold: 3,
         breakerCooldownMs: 6e4,
         onEvent: __name2((ev) => console.error(`[LLM\u6C60] ${ev.kind} ${ev.role} ${ev.detail ?? ""}`), "onEvent")
+      });
+      // P1-4: budget soft-gate wrapper. 不替换 llm 的方法实现, 只在调用前后做计数 + warn.
+      const _rawLlm = llm;
+      const _wrapWithBudget = (method) => async (req) => {
+        budgetCheck("llm-tokens", 1000, method); // 粗估 1k token/次, 实际用量后续可从 resp.usage 精细化
+        return _rawLlm[method](req);
+      };
+      llm = new Proxy(_rawLlm, {
+        get(target, prop) {
+          if (prop === "complete" || prop === "completeWithTools") {
+            return _wrapWithBudget(prop);
+          }
+          const v = target[prop];
+          return typeof v === "function" ? v.bind(target) : v;
+        },
       });
     } catch (e) {
       console.error(`[\u95EE\u8DEF] ${e instanceof Error ? e.message : e}`);
