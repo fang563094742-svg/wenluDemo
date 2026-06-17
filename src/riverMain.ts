@@ -9814,7 +9814,10 @@ async function main() {
         server.removeAllListeners("error");
         resolve2();
       });
-      server.listen(port, "127.0.0.1");
+      // P-真13: 监听地址可经环境变量 WENLU_BIND_HOST 配置, 默认 127.0.0.1 (单机安全).
+      // 生产服务器需要外网可达时设 WENLU_BIND_HOST=0.0.0.0 (前提是用 nginx/cloudflare 收 https).
+      const bindHost = process.env.WENLU_BIND_HOST?.trim() || "127.0.0.1";
+      server.listen(port, bindHost);
     });
   } catch (error) {
     const err = error;
