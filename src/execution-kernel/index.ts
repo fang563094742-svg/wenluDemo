@@ -99,6 +99,20 @@ export {
 export type { VerifyPolicy, PostVerifyEvidence, PostVerifyResult } from "./post-verify.js";
 
 export {
+  commandIsHardDestructive,
+  classifyDelete,
+  classifyCommandSideEffects,
+  pathInUserScope,
+} from "./destructive-gate.js";
+export type {
+  DeleteRewriteResult,
+  PathGuardContext,
+  PathGuardVerdict,
+  SideEffectKind,
+  CommandSideEffectInfo,
+} from "./destructive-gate.js";
+
+export {
   isWakeSatisfied,
   isWaitTimeout,
   clampWaitTimeout,

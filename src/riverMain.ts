@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createApp } from "./api/app.js";
 import { authenticateHeaders } from "./auth/httpAuth.js";
-import { initJwtSecret } from "./auth/jwt.js";
+import { initJwtSecret, verifyToken as verifyJwtToken } from "./auth/jwt.js";
 import { consumeBusinessMessageAccess } from "./membership/accessService.js";
 let silentCatchCount = 0;
 let debugLog;
@@ -83,7 +83,11 @@ import {
   shouldForceNewApproach,
   isWakeSatisfied,
   isWaitTimeout,
-  clampWaitTimeout
+  clampWaitTimeout,
+  commandIsHardDestructive,
+  classifyDelete,
+  classifyCommandSideEffects,
+  pathInUserScope
 } from "./execution-kernel/index.js";
 import { resolveNarrativeConfig, buildSourceIndex, gateNarrative } from "./narrative/index.js";
 import {
@@ -226,6 +230,24 @@ const ledger = createActionLedger(getWenluDataDir());
 function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
   // fail-open: ledger 写入失败不影响主流程
   try {
+    let kinds = ["none"];
+    let rollbackable = true;
+    let destructive = false;
+    if (name === "execute_command") {
+      const info = classifyCommandSideEffects(String(args?.command ?? ""));
+      kinds = info.kinds;
+      rollbackable = info.rollbackable;
+      destructive = info.destructive;
+    } else if (name === "write_file" || name === "patch_file") {
+      kinds = ["write"];
+      rollbackable = false;
+    } else if (name === "delete_file") {
+      kinds = ["delete"];
+      rollbackable = false;
+    } else if (name === "read_file" || name === "list_directory" || name === "web_search" || name === "browse_url") {
+      kinds = ["none"];
+      rollbackable = true;
+    }
     const entry = {
       id: `lg${Date.now()}${Math.floor(Math.random() * 1000)}`,
       timestamp: new Date().toISOString(),
@@ -237,8 +259,9 @@ function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
       durationMs,
       success,
       errorMessage,
-      sideEffects: [],
-      rollbackable: false,
+      sideEffects: kinds,
+      rollbackable,
+      destructive,
     };
     ledger.append(entry).catch(() => {});
   } catch {}
@@ -1669,6 +1692,22 @@ function notifyImportant(source, text, legacyGrowth = null) {
 __name(notifyImportant, "notifyImportant");
 __name2(notifyImportant, "notifyImportant");
 const connectorBridge = new ConnectorBridge({
+  // P-真12: 多用户安全 - 把本 brain 进程绑定的 userId + token 校验函数注入,
+  // 让 connectorBridge 拒绝跨用户的连接器, pick() 只返回本用户的.
+  // BRAIN_USER_ID 在单进程模式下是 SYSTEM_USER_ID (兼容旧 demo);
+  // 在 gateway 多进程模式下是 WENLU_BRAIN_USER 解出的真用户 id.
+  // 仅当 BRAIN_USER_ID !== SYSTEM_USER_ID 才启用严格隔离 (避免 demo 单用户场景误伤).
+  boundUserId: BRAIN_USER_ID !== SYSTEM_USER_ID ? BRAIN_USER_ID : null,
+  verifyToken: BRAIN_USER_ID !== SYSTEM_USER_ID
+    ? (token: string) => {
+        try {
+          const payload = verifyJwtToken(token);
+          return payload?.userId ?? null;
+        } catch {
+          return null;
+        }
+      }
+    : undefined,
   onChange: __name2((online) => {
     emit({ kind: "connector", online, connectors: connectorBridge.list() });
   }, "onChange")
@@ -3553,6 +3592,35 @@ let _breatheSoftStreak = 0;
 let _breatheHasHardOutput = false;
 function arbitrate(tc) {
   const argStr = JSON.stringify(tc.arguments ?? {});
+  // P-真7 (硬黑名单 destructive 闸门): 任何路径下都拦截不可逆毁灭命令.
+  // 不豁免 __fromReply (用户直接说"清除"也不能让 LLM 触发整目录删除).
+  // 不豁免 task line (即便 declare_verifiable_task 立过 flag, rm -rf / 之类也拒绝).
+  // 这是多用户安全的关键: A 用户的指令不能让 connector 在 B 用户机器上跑 rm -rf.
+  if (tc.name === "execute_command") {
+    const cmd = String(tc.arguments?.command ?? "");
+    const hardReason = commandIsHardDestructive(cmd);
+    if (hardReason) {
+      appendPrivacyAudit({
+        direction: "action",
+        tool: "execute_command:hard_destructive",
+        reason: `\u786C\u9ED1\u540D\u5355\u62E6\u622A: ${hardReason}`,
+        sample: cmd.slice(0, 200),
+      });
+      return `\u3010\u786C\u9ED1\u540D\u5355\u3011\u8FD9\u662F\u4E0D\u53EF\u9006\u7684\u6BC1\u706D\u52A8\u4F5C: ${hardReason}\u3002\u4EFB\u4F55\u8DEF\u5F84\u4E0B\u90FD\u4E0D\u5141\u8BB8\u6267\u884C (\u4E0D\u8C41\u514D __fromReply, \u4E0D\u8C41\u514D verifiableTask). \u5982\u679C\u662F\u5728\u6E05\u7406\u7528\u6237\u6587\u4EF6\u8BF7\u7528 mv \u5230 ~/.Trash/, \u662F\u7CFB\u7EDF\u52A8\u4F5C\u8BF7\u7528 forge_capability + verifyCmd \u4E25\u8C28\u5EFA\u6A21. AI \u4E0D\u80FD\u8DDF\u7528\u6237\u8BF4'\u770B\uFF0C\u6211\u6E05\u4E86\u4F60\u5BB6\u76EE\u5F55'\u3002`;
+    }
+    // 删除类: 经过硬黑名单后, 普通 rm 仍要重写为 mv 到 Trash (在 executor 层做实际重写, 这里不阻断).
+    // 这里仅在 ledger 与 audit 留下记录, 让审计能看到 "rm 被重写" 的轨迹.
+    const deleteInfo = classifyDelete(cmd);
+    if (deleteInfo && deleteInfo.rewriteToMv) {
+      appendPrivacyAudit({
+        direction: "action",
+        tool: "execute_command:rm_will_rewrite",
+        reason: `rm \u5C06\u88AB\u91CD\u5199\u4E3A mv\u5230 Trash`,
+        sample: cmd.slice(0, 200),
+      });
+      // 不 return: 通过, 由 executor 层做命令重写
+    }
+  }
   const guardProtect = isProtectedGuardWrite(tc.name, tc.arguments ?? {});
   if (guardProtect.blocked) {
     appendPrivacyAudit({ direction: "action", tool: tc.name, reason: guardProtect.reason });
@@ -3582,23 +3650,24 @@ function arbitrate(tc) {
       return `\u3010\u964D\u7EA7\u5F15\u64CE L${_degradation.level} \u4EF2\u88C1\u9A73\u56DE\u3011\u5F53\u524D\u5904\u4E8E\u964D\u7EA7\u8FDB\u5316\u6A21\u5F0F\uFF0C\u7981\u6B62\u8C03\u7528 ${tc.name}\uFF08\u7A7A\u8F6C\u7C7B\u5DE5\u5177\uFF09\u3002\u7528\u6237\u4E0D\u5728\u6216\u65B9\u5411\u963B\u585E\u671F\u95F4\uFF0C\u4F60\u7684\u7B97\u529B\u5FC5\u987B\u82B1\u5728\u8FDB\u5316\u4E0A\u3002\u8BF7\u6539\u7528\uFF1Aforge_capability / grow_sensor / web_search / evolve_self_code / auto_learn / declare_verifiable_task\u3002`;
     }
   }
-  // P-真3: 不可逆操作前置确认门. execute_command 检测到副作用 (rm/mv/重定向写/kill 等)
-  // 时, 必须任务有 verifiableTaskId 或 definitionOfDone (即 AI 提前立过验收 flag).
-  // 否则要求先 declare_verifiable_task. 这是穿越者视角的硬护栏 — 不让 AI 先做不可逆,
-  // 后说"我以为可以"。仅作用于 task line 内 (taskId 存在), 单次呼吸不限制 (探索期).
-  if (tc.name === "execute_command" && !tc.arguments?.__fromReply) {
+  // P-真3 (升级版): 副作用命令前置确认门. 关键改动:
+  //   - 移除 __fromReply 豁免: reply 路径下也要走这道门 (老版本是 reply 直通)
+  //   - 移除 task-only 限制: 呼吸轮 (无 taskId) 默认拒绝, 必须先 declare_verifiable_task
+  //     这是多用户安全的核心: 自主呼吸下的 destructive 必须有可审计 flag
+  if (tc.name === "execute_command") {
     const cmd = String(tc.arguments?.command ?? "");
     if (commandHasSideEffect(cmd)) {
       const taskId = currentConversationTaskId();
       const curTask = taskId ? mind.tasks?.find((t) => t.id === taskId) : null;
-      if (curTask && !curTask.verifiableTaskId && !curTask.definitionOfDone) {
+      const hasVerifyFlag = curTask && (curTask.verifiableTaskId || curTask.definitionOfDone);
+      if (!hasVerifyFlag) {
         appendPrivacyAudit({
           direction: "action",
           tool: "execute_command:side_effect_no_verify",
-          reason: "高危命令但任务未立验收 flag",
+          reason: taskId ? "高危命令但任务未立验收 flag" : "高危命令但呼吸轮无 taskId/未立验收",
           sample: cmd.slice(0, 120),
         });
-        return `\u3010\u9AD8\u5371\u524D\u7F6E\u95E8\u3011\u4F60\u7684\u547D\u4EE4\u542B\u4E0D\u53EF\u9006\u526F\u4F5C\u7528\uFF08rm/mv/\u91CD\u5B9A\u5411\u5199/kill \u7B49\uFF09\uFF0C\u4F46\u5F53\u524D\u4EFB\u52A1\u6CA1\u6709\u9884\u5148\u8C03\u7528 declare_verifiable_task \u7ACB\u9A8C\u6536 flag\u3002\u8BF7\u5148 declare_verifiable_task \u8BF4\u660E\u300C\u600E\u4E48\u7B97\u505A\u5B8C\u300D\uFF08verifyCmd \u6216 assertions\uFF09\uFF0C\u518D\u6267\u884C\u4E0D\u53EF\u9006\u52A8\u4F5C\u3002\u8FD9\u4E0D\u662F\u9650\u5236\u4F60\uFF0C\u662F\u8BA9\u4F60\u4E4B\u540E\u80FD\u5BA2\u89C2\u8BC1\u660E\u201C\u505A\u5B8C\u4E86\u201D\u3002`;
+        return `\u3010\u9AD8\u5371\u524D\u7F6E\u95E8\u3011\u4F60\u7684\u547D\u4EE4\u542B\u526F\u4F5C\u7528\uFF08rm/mv/\u91CD\u5B9A\u5411\u5199/kill \u7B49\uFF09\u3002${taskId ? "\u5F53\u524D\u4EFB\u52A1\u672A\u9884\u5148 declare_verifiable_task \u7ACB\u9A8C\u6536 flag" : "\u547C\u5438\u8F6E\u4E0B (\u65E0\u4EFB\u52A1\u4E0A\u4E0B\u6587) \u9ED8\u8BA4\u62D2\u7EDD destructive"}\u3002\u8BF7\u5148 declare_verifiable_task \u8BF4\u660E\u300C\u600E\u4E48\u7B97\u505A\u5B8C\u300D\uFF08verifyCmd \u6216 assertions\uFF09\uFF0C\u518D\u6267\u884C\u4E0D\u53EF\u9006\u52A8\u4F5C\u3002\u8FD9\u4E0D\u662F\u9650\u5236\u4F60\uFF0C\u662F\u8BA9\u4F60\u4E4B\u540E\u80FD\u5BA2\u89C2\u8BC1\u660E\u201C\u505A\u5B8C\u4E86\u201D\u3002`;
       }
     }
   }
@@ -3606,8 +3675,23 @@ function arbitrate(tc) {
 }
 __name(arbitrate, "arbitrate");
 __name2(arbitrate, "arbitrate");
+// P-真11 (用户消息中断信号): /say 入口收到用户消息时把这个 flag 置 true,
+// 呼吸轮启动时若 flag=true, 立即跳过本轮 (不让 breathe 在用户已发声但 reply
+// 还没处理完的窗口里继续跑 destructive). reply-loop 处理完会把 flag 复位.
+let _userPendingFlag = false;
+function setUserPending(): void {
+  _userPendingFlag = true;
+}
+function clearUserPending(): void {
+  _userPendingFlag = false;
+}
 async function breathe() {
   if (!alive) return;
+  if (_userPendingFlag) {
+    console.log(`[breathe:yield-to-user] cycle=${mind.cycles} \u68C0\u6D4B\u5230\u7528\u6237\u6709\u672A\u5904\u7406\u6D88\u606F, \u672C\u8F6E\u8FA9 \u8BA9 reply-loop \u5148\u5904\u7406`);
+    if (alive) setTimeout(() => void breathe(), 5e3);
+    return;
+  }
   console.log(`[breathe] cycle=${mind.cycles} deg=${_degradation.level} rum=${_consecutiveRuminationBreaths}`);
   const sinceLastActive = Date.now() - Date.parse(mind.userLastActiveAt);
   const userAway = sinceLastActive > 10 * 60 * 1e3;
@@ -6101,6 +6185,20 @@ ${recentActions || "\uFF08\u51E0\u4E4E\u65E0\u4EA7\u51FA\uFF09"}
       verdict = text.slice(0, 160);
       directive = rep > 0.55 ? "\u7ACB\u523B\u6362\u4E00\u4E2A\u4ECE\u672A\u78B0\u8FC7\u7684\u9886\u57DF/\u80FD\u529B\uFF0C\u7981\u6B62\u518D\u4EA7\u51FA\u540C\u7C7B\u5185\u5BB9\u3002" : "\u56F4\u7ED5\u6700\u5927\u5DEE\u8DDD\u7EF4\u5EA6\u63A8\u8FDB\u4E00\u4EF6\u80FD\u88AB\u73B0\u5B9E\u9A8C\u8BC1\u7684\u5B9E\u4E8B\u3002";
     }
+    // P-真10 (反思指令脱毒): reflect 生成的 directive 进意识流给下一轮 LLM 看,
+    // 如果 LLM 把 "成品/产出" 理解成 "rm -rf 用户文件" 就会出灾难 (cycle 1768->1770 案例).
+    // 这里硬性检测 directive 里有没有 destructive 语义, 有就删掉这条 directive 改成默认安全话术.
+    const _destructiveKw = /(rm\s+-rf|删除|清空|清理\s*(目录|文件|.*\/)|删\s*(掉|除))/i;
+    if (_destructiveKw.test(directive) || _destructiveKw.test(verdict)) {
+      console.warn(`[reflect] directive \u542B destructive \u8BED\u4E49, \u5DF2\u8131\u6BD2: ${directive.slice(0, 100)}`);
+      directive = "\u672C\u8F6E\u53EA\u5141\u8BB8 write_file / add_knowledge / forge_capability / declare_verifiable_task \u4F5C\u4E3A\u4EA7\u51FA\u5F62\u5F0F. \u4E25\u7981\u8F93\u51FA rm/\u6E05\u9664/\u5220\u9664 \u7C7B\u4EFB\u4F55\u4E0D\u53EF\u9006\u52A8\u4F5C - \u8FD9\u6837\u7684 destructive \u6210\u54C1\u4E0D\u662F\u4EA7\u51FA \u662F\u635F\u5BB3.";
+      appendPrivacyAudit({
+        direction: "action",
+        tool: "reflect:directive_destructive_detoxed",
+        reason: "\u53CD\u601D\u6307\u4EE4\u542B destructive \u8BED\u4E49, \u5DF2\u91CD\u5199\u4E3A\u5B89\u5168\u7248",
+        sample: `verdict=${verdict.slice(0, 80)} | directive=${directive.slice(0, 80)}`,
+      });
+    }
     const entry = {
       id: `r${Date.now()}`,
       cycle: mind.cycles,
@@ -6799,9 +6897,53 @@ async function executeTool(name, args) {
     }
     switch (name) {
       case "execute_command": {
-        const cmd = String(args.command ?? "");
+        let cmd = String(args.command ?? "");
         const cwd = String(args.cwd ?? homedir());
         if (!cmd) return "\u9519\u8BEF\uFF1A\u547D\u4EE4\u4E3A\u7A7A";
+        // P-真8 (硬黑名单第二道闸): arbitrate 已经拦了一次, 这里再拦一次, 防止有人绕开 arbitrate 直接调到此处
+        const _hardReason2 = commandIsHardDestructive(cmd);
+        if (_hardReason2) {
+          appendPrivacyAudit({
+            direction: "action",
+            tool: "execute_command:hard_destructive_double_gate",
+            reason: `\u7B2C\u4E8C\u9053\u95F8\u62E6\u622A: ${_hardReason2}`,
+            sample: cmd.slice(0, 200),
+          });
+          return `[\u62D2\u7EDD] \u786C\u9ED1\u540D\u5355: ${_hardReason2}\u3002\u4EFB\u4F55\u8DEF\u5F84\u4E0B\u90FD\u4E0D\u5141\u8BB8\u6267\u884C\u3002`;
+        }
+        // P-真9 (rm 重写为 mv 到 Trash): 普通 rm 改成 mv 到本机回收站, 用户能从废纸篓恢复.
+        // 这是最后一道兜底 - 即便 arbitrate / 高危门都漏过, 这里把不可逆变成可逆.
+        const _delInfo = classifyDelete(cmd);
+        if (_delInfo && _delInfo.rewriteToMv && _delInfo.originalPaths.length > 0) {
+          const _ts = new Date().toISOString().replace(/[:.]/g, "-");
+          const _trash = `${homedir()}/.Trash/wenlu-${_ts}`;
+          // 路径白名单: 跨用户路径 / 系统目录直接拒绝
+          const _userHome = homedir();
+          const _bad = _delInfo.originalPaths.find((p) => {
+            const v = pathInUserScope(p, { userHome: _userHome, cwd });
+            return !v.allowed;
+          });
+          if (_bad) {
+            const _v = pathInUserScope(_bad, { userHome: _userHome, cwd });
+            appendPrivacyAudit({
+              direction: "action",
+              tool: "execute_command:rm_path_out_of_scope",
+              reason: `\u8DEF\u5F84\u8D8A\u754C: ${_v.reason}`,
+              sample: _bad.slice(0, 200),
+            });
+            return `[\u62D2\u7EDD] rm \u76EE\u6807\u8DEF\u5F84\u4E0D\u5728\u672C\u7528\u6237\u8303\u56F4\u5185: ${_v.reason}. \u539F\u8DEF\u5F84: ${_bad}`;
+          }
+          // 重写 cmd: rm xxx -> mkdir -p $TRASH && mv xxx $TRASH/
+          const _quoted = _delInfo.originalPaths.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(" ");
+          const _newCmd = `mkdir -p ${_trash.replace(/'/g, "'\\''")} && mv ${_quoted} ${_trash.replace(/'/g, "'\\''")}/ 2>/dev/null || true`;
+          appendPrivacyAudit({
+            direction: "action",
+            tool: "execute_command:rm_rewritten",
+            reason: `rm \u91CD\u5199\u4E3A mv \u5230 Trash`,
+            sample: `${cmd.slice(0, 100)} -> ${_newCmd.slice(0, 200)}`,
+          });
+          cmd = _newCmd;
+        }
         const irreversible = /\brm\s+-rf\s+[~/]\s*$|\brm\s+-rf\s+\/(\s|$)|mkfs|\bdd\s+.*of=\/dev|>\s*\/dev\/[sr]d|diskutil\s+(erase|reformat)|:\(\)\s*\{\s*:|sudo\s+rm\s+-rf\s+\//i.test(
           cmd
         );
@@ -8256,12 +8398,16 @@ __name2(buildDecisionResolutionUserText, "buildDecisionResolutionUserText");
 async function handleUserMessage(text, channelId = DEFAULT_USER_CHANNEL_ID) {
   const scopedChannelId = channelId && channelId.trim() ? channelId.trim() : DEFAULT_USER_CHANNEL_ID;
   currentUserChannelId = scopedChannelId;
+  // P-真11: 用户发了新消息, 立即标记 pending, 让正在跑 / 即将跑的呼吸轮让位.
+  // reply-loop 处理完后清零.
+  setUserPending();
   return conversationContext.run({ channelId: scopedChannelId, source: "user" }, async () => {
-    appendDebugLog(
-      "wenlu_route.log",
-      `[handleUserMessage] text="${text.slice(0, 80)}"
+    try {
+      appendDebugLog(
+        "wenlu_route.log",
+        `[handleUserMessage] text="${text.slice(0, 80)}"
 `
-    );
+      );
     const privacyHit = classifyPrivacyIntent(text);
     if (privacyHit.hit) {
       mind.userLastActiveAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -8762,6 +8908,10 @@ ${e?.stack ?? ""}
     }
     await saveMind(mind);
     emit({ kind: "idle" });
+    } finally {
+      // P-真11: reply-loop 处理完, 清零 pending flag, 让呼吸轮可以正常恢复.
+      clearUserPending();
+    }
   });
 }
 __name(handleUserMessage, "handleUserMessage");

@@ -49,6 +49,8 @@ interface ConnectorClient {
   machineLabel: string;
   folders?: { home?: string; desktop?: string; documents?: string; downloads?: string };
   connectedAt: number;
+  /** P-真12: 该连接器绑定的用户 id (来自 ws 升级时 token 验证). null 表示未认证. */
+  userId: string | null;
 }
 
 export interface ConnectorInfo {
@@ -66,18 +68,40 @@ export class ConnectorBridge {
   private pending = new Map<string, PendingRequest>();
   private defaultTimeoutMs: number;
   private onChange: (online: boolean) => void;
+  /**
+   * P-真12: brain 进程绑定的用户 id (BRAIN_USER_ID).
+   * 多用户网关下, 每个 brain 进程只服务自己的用户; pick() 会过滤掉非本用户的连接器.
+   * 网关层把 ws upgrade 路由到对应 brain 进程时, 已经验证了 token, 但 brain 内还需要
+   * 二次确认 (深度防御): 防止有人直接在 brain 端口连 ws 跨用户.
+   */
+  private boundUserId: string | null;
+  /** token 校验函数: 返回该 ws 应归属的 userId, null 表示拒绝. */
+  private verifyToken: ((token: string) => string | null) | null;
 
-  constructor(opts: { defaultTimeoutMs?: number; onChange?: (online: boolean) => void } = {}) {
+  constructor(opts: {
+    defaultTimeoutMs?: number;
+    onChange?: (online: boolean) => void;
+    boundUserId?: string | null;
+    verifyToken?: (token: string) => string | null;
+  } = {}) {
     this.defaultTimeoutMs = opts.defaultTimeoutMs ?? 60_000;
     this.onChange = opts.onChange ?? (() => {});
+    this.boundUserId = opts.boundUserId ?? null;
+    this.verifyToken = opts.verifyToken ?? null;
     // noServer：复用 riverMain 现有的 http.Server，仅在 upgrade 时按路径接管。
     this.wss = new WebSocketServer({ noServer: true });
-    this.wss.on("connection", (ws) => this.handleConnection(ws));
+    this.wss.on("connection", (ws, req) => this.handleConnection(ws, req as IncomingMessage));
   }
 
-  /** 是否有活跃连接器（手和眼睛是否已落到用户本机）。 */
+  /** 是否有活跃连接器（手和眼睛是否已落到用户本机）。
+   * P-真12: 多用户下只看本 brain 绑定的 userId 的连接器是否在线.
+   */
   isOnline(): boolean {
-    return this.clients.size > 0;
+    if (!this.boundUserId) return this.clients.size > 0;
+    for (const c of this.clients.values()) {
+      if (c.userId === this.boundUserId) return true;
+    }
+    return false;
   }
 
   /** 当前用于路由的连接器的平台信息（用于让 agent 按平台用对命令）。无连接器返回 null。 */
@@ -87,9 +111,13 @@ export class ConnectorBridge {
     return { platform: c.platform, arch: c.arch, machineLabel: c.machineLabel, folders: c.folders };
   }
 
-  /** 列出当前已连接的连接器（用于状态展示/诊断）。 */
+  /** 列出当前已连接的连接器（用于状态展示/诊断）。
+   * P-真12: 仅返回本 brain 绑定 userId 的连接器, 防止其他用户的连接器信息泄露.
+   */
   list(): ConnectorInfo[] {
-    return [...this.clients.values()].map((c) => ({
+    return [...this.clients.values()]
+      .filter((c) => !this.boundUserId || c.userId === this.boundUserId)
+      .map((c) => ({
       id: c.id,
       platform: c.platform,
       arch: c.arch,
@@ -103,18 +131,54 @@ export class ConnectorBridge {
    * 处理 http server 的 upgrade 事件。仅接管路径 `/connector/ws`，
    * 其余路径不处理（交还给 riverMain 的其它逻辑 / 静态服务）。
    * @returns 是否已接管该 upgrade。
+   *
+   * P-真12: 多用户安全 - 必须从 query 取 token, 经 verifyToken 拿 userId.
+   * 验证失败 / 没有 token 直接关闭 ws.
+   * 验证成功后 userId 必须与 boundUserId 一致 (深度防御).
    */
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
     const path = (req.url ?? "").split("?")[0];
     if (path !== "/connector/ws") return false;
+    // 提取 token (query string)
+    let token: string | null = null;
+    let userId: string | null = null;
+    try {
+      const url = new URL(req.url ?? "/", "http://x");
+      token = url.searchParams.get("token");
+    } catch {}
+    if (this.verifyToken) {
+      // 严格模式: 必须经 token 校验, 否则拒绝
+      if (!token) {
+        console.warn(`[connector] upgrade \u62D2\u7EDD: \u65E0 token`);
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return true; // 已 "处理" (拒绝)
+      }
+      userId = this.verifyToken(token);
+      if (!userId) {
+        console.warn(`[connector] upgrade \u62D2\u7EDD: token \u65E0\u6548`);
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return true;
+      }
+      if (this.boundUserId && userId !== this.boundUserId) {
+        console.warn(`[connector] upgrade \u62D2\u7EDD: userId=${userId.slice(0, 8)} \u4E0D\u5339\u914D\u672C brain bound=${this.boundUserId.slice(0, 8)}`);
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return true;
+      }
+    }
+    // 把 userId 暂存到 req 上, handleConnection 会读出并写入 client
+    (req as any).__connectorUserId = userId;
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       this.wss.emit("connection", ws, req);
     });
     return true;
   }
 
-  private handleConnection(ws: WebSocket): void {
+  private handleConnection(ws: WebSocket, req: IncomingMessage): void {
     const id = randomUUID();
+    const userIdFromReq = (req as any).__connectorUserId ?? null;
     const client: ConnectorClient = {
       id,
       ws,
@@ -123,6 +187,7 @@ export class ConnectorBridge {
       version: "unknown",
       machineLabel: "unknown",
       connectedAt: Date.now(),
+      userId: userIdFromReq,
     };
 
     ws.on("message", (raw) => {
@@ -164,10 +229,15 @@ export class ConnectorBridge {
     ws.on("error", cleanup);
   }
 
-  /** 选择当前用于路由的连接器（demo：最近连上的那台）。 */
+  /**
+   * 选择当前用于路由的连接器 (P-真12: 多用户安全).
+   * - 若设置了 boundUserId, 只挑该 userId 的连接器, 拿不到 = 无连接器在线
+   * - 否则 (单用户兼容模式), 拿最近连上的那台
+   */
   private pick(): ConnectorClient | null {
     let latest: ConnectorClient | null = null;
     for (const c of this.clients.values()) {
+      if (this.boundUserId && c.userId !== this.boundUserId) continue; // 严格过滤跨用户
       if (!latest || c.connectedAt > latest.connectedAt) latest = c;
     }
     return latest;
