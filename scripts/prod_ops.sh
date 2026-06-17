@@ -44,7 +44,9 @@ ACTION="${1:-help}"
 case "$ACTION" in
   deploy)
     echo "=== git pull + restart brain ==="
-    run_remote 'cd /opt/wenlu/wenluDemo && git pull origin main && cd /opt/wenlu/wenluDemoWeb && git pull origin main && cd /opt/wenlu/wenluConnector && git pull origin main && systemctl restart wenlu-brain && sleep 6 && systemctl is-active wenlu-brain && curl -fsS http://127.0.0.1/api/health && echo'
+    # 注意: wenluDemoWeb / wenluConnector 不部署到服务器
+    # wenluDemoWeb 是前端静态 (GitHub Pages 或其他 CDN), wenluConnector 是用户本机 app
+    run_remote 'cd /opt/wenlu/wenluDemo && git pull origin main && systemctl restart wenlu-brain && sleep 6 && systemctl is-active wenlu-brain && curl -fsS http://127.0.0.1/api/health && echo'
     ;;
   status)
     run_remote 'systemctl status wenlu-broker wenlu-brain nginx postgresql --no-pager 2>&1 | head -60; echo "---"; ss -tlnp | grep -E ":(80|443|3210|3260|5432) "; echo "---"; df -h / | tail -1; echo "---"; uptime'
