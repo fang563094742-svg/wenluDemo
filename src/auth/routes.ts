@@ -162,6 +162,23 @@ function resolvePasswordOrThrow(body: {
 }
 
 async function applyNewUserCapabilities(userId: string, logPrefix: string): Promise<void> {
+  // P-真14: 给新用户建立 per-user 数据目录骨架.
+  // 这一步必须最先做 - 后续任何 mind/memory/sensors 写入都依赖此目录存在.
+  // 失败 console.warn 但不阻断注册.
+  try {
+    const { mkdir } = await import("node:fs/promises");
+    const { resolveUserDataPath } = await import("../runtime/localDataDir.js");
+    const userDir = resolveUserDataPath(userId);
+    await mkdir(userDir, { recursive: true });
+    // 子目录骨架 (与 system_local user 保持一致, 见 用户数据/README.md)
+    for (const sub of ["mind-backups", "bin", "sensors", "tools", "evidence", "verification", "self_code", "artifacts"]) {
+      await mkdir(`${userDir}/${sub}`, { recursive: true });
+    }
+    console.log(`${logPrefix} 新用户 ${userId} 数据目录已建: ${userDir}`);
+  } catch (dirErr) {
+    console.warn(`${logPrefix} 建立用户数据目录失败 (不阻断注册):`, dirErr);
+  }
+
   try {
     const inherited = await inheritCapabilities(userId);
     if (inherited.length > 0) {

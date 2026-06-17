@@ -14,6 +14,14 @@ dist/
 .wenlu-local/
 .wenlu-local-backup-*/
 
+# 用户数据 (per-user 大脑/记忆/流水/证据等, 不入 git, 隐私+体积)
+# P-真14: 数据持久化层的唯一根 (与 PG users.id 对齐)
+用户数据/users/*
+用户数据/_archive/
+用户数据/autonomy/*.json
+# 但 README 入 git, 让目录契约可被仓库继承
+!用户数据/README.md
+
 # runtime junk / generated artifacts
 artifacts/
 task_output/

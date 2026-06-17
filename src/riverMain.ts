@@ -149,7 +149,7 @@ import {
   CALIBRATION_INFER_SYSTEM
 } from "./calibration/index.js";
 import { analyzePremises, detectSelfPleasing } from "./anti-premise/index.js";
-import { getWenluDataDir, resolveWenluDataPath } from "./runtime/localDataDir.js";
+import { resolveUserDataPath } from "./runtime/localDataDir.js";
 import { persistMindJson } from "./runtime/mindPersist.js";
 import { ConnectorBridge } from "./connector/connectorBridge.js";
 import { bootstrapDb, closePool } from "./db/pool.js";
@@ -225,8 +225,16 @@ function budgetCheck(dim, amount = 1, label = "") {
 }
 // P1-5 (actionLedger): 每次 tool 调用流水落 NDJSON. 与 mind.json (快照) 分离,
 // append-only 不改写历史. 数据沉淀后给"为什么 mind 是这样"提供事后审计。
+// 注意: ledger 必须在 BRAIN_USER_ID 解析后才能初始化 (per-user 路径).
+//      module-load 阶段 BRAIN_USER_ID 还没定义, 所以这里 lazy 初始化.
 import { createActionLedger } from "./runtime/actionLedger.js";
-const ledger = createActionLedger(getWenluDataDir());
+let _ledger: ReturnType<typeof createActionLedger> | null = null;
+function ledger() {
+  if (_ledger) return _ledger;
+  // 在第一次调用时, BRAIN_USER_ID 已经定义了 (调用点都在 reply / breathe 里, 早于此那是不可能跑 tool 的).
+  _ledger = createActionLedger(USER_DIR);
+  return _ledger;
+}
 function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
   // fail-open: ledger 写入失败不影响主流程
   try {
@@ -263,7 +271,7 @@ function ledgerLogTool(name, args, output, durationMs, success, errorMessage) {
       rollbackable,
       destructive,
     };
-    ledger.append(entry).catch(() => {});
+    ledger().append(entry).catch(() => {});
   } catch {}
 }
 // P2-7 (chronotopic 降级版): 只用 temporalDecay 纯函数, 不调感知 (避开 P0-2 方向冲突).
@@ -407,10 +415,8 @@ ${error.message}` : ""}`.trim(),
 }
 __name(safeExec, "safeExec");
 __name2(safeExec, "safeExec");
-const WENLU_DIR = getWenluDataDir();
-const WENLU_BIN_DIR = resolvePath(WENLU_DIR, "bin");
-const MIND_FILE = resolveWenluDataPath("mind.json");
-const INSTANCE_FILE = resolveWenluDataPath("instance.json");
+// 注意: 数据根目录 + per-user 子目录的常量在 BRAIN_USER_ID 解析后才定义 (~line 600+).
+// 这里不再保留 WENLU_DIR 全局常量 — 所有路径都按 per-user 走 (USER_DIR/MIND_FILE/etc).
 const SERVER_STARTED_AT = (/* @__PURE__ */ new Date()).toISOString();
 const SERVER_STARTED_AT_MS = Date.now();
 const RUNTIME_INSTANCE_ID = `wenlu-${process.pid}-${SERVER_STARTED_AT_MS.toString(36)}`;
@@ -596,6 +602,15 @@ function currentUserId() {
 }
 __name(currentUserId, "currentUserId");
 __name2(currentUserId, "currentUserId");
+
+// ─── per-user 数据路径（与 PG users.id 对齐, 见 db/migrations/003_brain_store.sql）───
+// 每个 brain 进程绑定一个 BRAIN_USER_ID, 所有文件类用户数据都落到 <根>/users/<uid>/.
+// 系统级证据（不属于具体用户）落 <根>/autonomy/, 不在此处定义.
+const USER_DIR = resolveUserDataPath(BRAIN_USER_ID);
+const MIND_FILE = resolveUserDataPath(BRAIN_USER_ID, "mind.json");
+const INSTANCE_FILE = resolveUserDataPath(BRAIN_USER_ID, "instance.json");
+const WENLU_BIN_DIR = resolveUserDataPath(BRAIN_USER_ID, "bin");
+
 async function maybeImportLegacyBrain() {
   try {
     if (currentUserId() !== SYSTEM_USER_ID) return;
@@ -638,7 +653,7 @@ async function resolveChannelsState(loaded) {
     }
     let legacyTopics = null;
     try {
-      const raw = await readFile(resolvePath(WENLU_DIR, "topics.json"), "utf-8");
+      const raw = await readFile(resolvePath(USER_DIR, "topics.json"), "utf-8");
       legacyTopics = JSON.parse(raw);
     } catch (e) {
       silentCatchCount++;
@@ -954,7 +969,7 @@ __name2(distillVerifiedSkill, "distillVerifiedSkill");
 let saveChain = Promise.resolve();
 async function saveMind(m) {
   saveChain = saveChain.then(async () => {
-    await mkdir(WENLU_DIR, { recursive: true });
+    await mkdir(USER_DIR, { recursive: true });
     m.metrics.knowledgeCount = m.knowledge.length;
     m.metrics.toolCount = m.masteredTools.length;
     const active = m.beliefs.filter((b) => !b.correctedBy);
@@ -1554,7 +1569,7 @@ let lastHeartbeat = Date.now();
 let listeningPort = 0;
 let layeredMemory = null;
 let interactionState = createInteractionState();
-const LAYERED_MEMORY_FILE = resolveWenluDataPath("memory.json");
+const LAYERED_MEMORY_FILE = resolveUserDataPath(BRAIN_USER_ID, "memory.json");
 function emit(ev) {
   if (ev.kind === "say" && !ev.time) {
     ev.time = (/* @__PURE__ */ new Date()).toISOString();
@@ -4463,7 +4478,7 @@ __name(getFrontBrowserContext, "getFrontBrowserContext");
 __name2(getFrontBrowserContext, "getFrontBrowserContext");
 async function getRecentChromeHistorySummary(frontContext) {
   const histSrc = resolvePath(homedir(), "Library/Application Support/Google/Chrome/Default/History");
-  const histTmp = resolvePath(WENLU_DIR, "_hist.tmp");
+  const histTmp = resolvePath(USER_DIR, "_hist.tmp");
   await safeExec("cp", [histSrc, histTmp], { timeout: 4e3 });
   const { stdout } = await safeExec(
     "sqlite3",
@@ -6506,7 +6521,7 @@ ${recentConv || "\uFF08\u6700\u8FD1\u6CA1\u600E\u4E48\u804A\uFF09"}
 }
 __name(calibrateWithUser, "calibrateWithUser");
 __name2(calibrateWithUser, "calibrateWithUser");
-const SENSORS_DIR = resolvePath(WENLU_DIR, "sensors");
+const SENSORS_DIR = resolvePath(USER_DIR, "sensors");
 const SENSORS_STATE_FILE = resolvePath(SENSORS_DIR, "_state.json");
 const MAX_ACTIVE_SENSORS = 8;
 const SENSOR_IDLE_SLEEP_ROUNDS = 12;
@@ -6618,7 +6633,7 @@ exec "${full}" "$@"
 }
 __name(ensureSensorExecutables, "ensureSensorExecutables");
 __name2(ensureSensorExecutables, "ensureSensorExecutables");
-const SELF_CODE_DIR = resolvePath(WENLU_DIR, "self_code");
+const SELF_CODE_DIR = resolvePath(USER_DIR, "self_code");
 const SELF_HOOKS_FILE = resolvePath(SELF_CODE_DIR, "decision_hooks.mjs");
 let _selfHooks = null;
 let _selfHooksLoadedMtime = 0;
