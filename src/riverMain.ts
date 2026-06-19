@@ -746,7 +746,7 @@ async function loadMind() {
       commitments: loaded.commitments ?? [],
       calibrationProfile: loaded.calibrationProfile ?? emptyCalibrationProfile(),
       egressHealth: loaded.egressHealth ?? {},
-      skillFlywheel: loaded.skillFlywheel ?? void 0,
+      skillFlywheel: loaded.skillFlywheel ?? { mode: "enforce", enabled: { router: true, distiller: true }, minVerifyToTrust: 1 },
       skillKB: loaded.skillKB ?? emptyKB(),
       schemaVersion: chState.schemaVersion,
       channels: chState.channels,
@@ -1957,7 +1957,7 @@ function spawnTask(goal, opts = {}) {
     }
     void saveMind(mind);
     emitTasks();
-    void scheduleTasks();
+    void requestSchedule();
     return existed;
   }
   const t = {
@@ -1980,7 +1980,7 @@ function spawnTask(goal, opts = {}) {
   mind.tasks.push(t);
   void saveMind(mind);
   emitTasks();
-  void scheduleTasks();
+  void requestSchedule();
   return t;
 }
 __name(spawnTask, "spawnTask");
@@ -2416,10 +2416,21 @@ async function wakeWaitingTasks() {
       debugLog?.(`[silent-catch:] ${e?.message ?? e}`);
     }
   }
-  if (alive) scheduleTasks();
+  if (alive) requestSchedule();
 }
 __name(wakeWaitingTasks, "wakeWaitingTasks");
 __name2(wakeWaitingTasks, "wakeWaitingTasks");
+let _scheduleRequested = false;
+function requestSchedule() {
+  if (_scheduleRequested) return;
+  _scheduleRequested = true;
+  queueMicrotask(() => {
+    _scheduleRequested = false;
+    scheduleTasks();
+  });
+}
+__name(requestSchedule, "requestSchedule");
+__name2(requestSchedule, "requestSchedule");
 function scheduleTasks() {
   if (!alive) return;
   refreshLlmCoolingState();
@@ -2449,13 +2460,36 @@ function scheduleTasks() {
       runningTaskIds.delete(task.id);
       if (alive) {
         void wakeWaitingTasks();
-        scheduleTasks();
+        requestSchedule();
       }
     });
   }
 }
 __name(scheduleTasks, "scheduleTasks");
 __name2(scheduleTasks, "scheduleTasks");
+const RUNNING_TASK_TTL_MS = 15 * 60 * 1e3;
+function reapStalledRunningTasks() {
+  const now = Date.now();
+  let reaped = 0;
+  for (const t of mind.tasks) {
+    if (t.status !== "running") continue;
+    const lastTouch = Date.parse(t.updatedAt || t.createdAt);
+    if (now - lastTouch < RUNNING_TASK_TTL_MS) continue;
+    t.status = "failed";
+    t.result = `wall-clock TTL 超时 (${Math.round((now - lastTouch) / 6e4)} 分钟无推进)`;
+    t.updatedAt = new Date().toISOString();
+    t.log.push({ time: t.updatedAt, text: `[TTL reap] running 超 ${RUNNING_TASK_TTL_MS / 6e4} 分钟未更新，自动标记 failed` });
+    cascadeChainFailure(mind, t);
+    reaped++;
+  }
+  if (reaped > 0) {
+    console.log(`[reapStalledRunningTasks] reaped=${reaped}`);
+    void saveMind(mind);
+    emitTasks();
+  }
+}
+__name(reapStalledRunningTasks, "reapStalledRunningTasks");
+__name2(reapStalledRunningTasks, "reapStalledRunningTasks");
 function reviveLlmBlockedTasks() {
   refreshLlmCoolingState();
   if (isLlmCoolingDown()) return;
@@ -3049,7 +3083,7 @@ ${late.hint}`
             eventType: "notification"
           });
           await saveMind(mind);
-          if (alive && (cur.status === "done" || cur.status === "failed")) scheduleTasks();
+          if (alive && (cur.status === "done" || cur.status === "failed")) requestSchedule();
           return;
         } else {
           const result = await executeToolObserved(tc.name, tc.arguments, {
@@ -3427,7 +3461,7 @@ ${recentLog}`
                   }
                   await saveMind(mind);
                   emitTasks();
-                  if (alive) scheduleTasks();
+                  if (alive) requestSchedule();
                   return;
                 }
               } else if (decision.next === "stop_loss") {
@@ -3775,9 +3809,10 @@ async function breathe() {
     }
   }
   emit({ kind: "thinking" });
+  reapStalledRunningTasks();
   reviveLlmBlockedTasks();
   void wakeWaitingTasks();
-  scheduleTasks();
+  requestSchedule();
   if (isLlmCoolingDown()) {
     mind.lastAction = `[\u81EA\u52A8\u964D\u8F7D] LLM \u51B7\u5374\u4E2D\uFF0C\u540E\u53F0\u8DF3\u8FC7\u672C\u8F6E\u9AD8\u8017 LLM \u547C\u5438\uFF0C\u51B7\u5374\u81F3 ${llmRuntimeStats.cooldownUntil ?? "\u5F85\u5B9A"}`;
     await saveMind(mind);
@@ -5497,6 +5532,13 @@ function maybeSpawnRepairTaskForDebt(debt) {
     if (debt.status !== "repairing") debt.status = "repairing";
     return null;
   }
+  if ((debt.linkedRepairTaskIds?.length ?? 0) >= LIFEFORM_CONFIG.MAX_REPAIR_ATTEMPTS_PER_DEBT) {
+    if (debt.status !== "frozen") {
+      debt.status = "frozen";
+      debt.lastFrozenCycle = mind.cycles; // 供解冻逻辑计时
+    }
+    return null;
+  }
   if (!shouldAutoSpawnRepairForDebt(debt)) return null;
   const repair = buildDebtRepairPlan(
     debt.kind,
@@ -5893,7 +5935,7 @@ function degradationTick() {
     _epochStartedAt = Date.now();
     _totalMutations = 0;
     for (const debt of mind.capabilityDebts ?? []) {
-      if (debt.status === "open" && debt.lastFrozenCycle && mind.cycles - debt.lastFrozenCycle > 50) {
+      if (debt.status === "frozen" && debt.lastFrozenCycle && mind.cycles - debt.lastFrozenCycle > 50) {
         debt.status = "open";
         debt.lastFrozenCycle = void 0;
       }
@@ -8897,7 +8939,7 @@ ${e?.stack ?? ""}
         );
       }
       try {
-        scheduleTasks();
+        requestSchedule();
       } catch (e) {
         appendDebugLog(
           "wenlu_route.log",
@@ -9217,7 +9259,7 @@ async function handleRequest(req, res) {
       t.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
       await saveMind(mind);
       emitTasks();
-      scheduleTasks();
+      requestSchedule();
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -9246,7 +9288,7 @@ async function handleRequest(req, res) {
       alive = true;
       void breathe();
     }
-    scheduleTasks();
+    requestSchedule();
     return;
   }
   if (method === "POST" && url === "/say") {

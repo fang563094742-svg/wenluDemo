@@ -34,6 +34,7 @@ export interface PersistMindResult {
   channelCountAfter: number;
   shrank: boolean;
   mergedMissingChannelIds: string[];
+  sizeDropDetected: boolean;
 }
 
 export interface ChannelSetComparison {
@@ -222,6 +223,29 @@ export async function persistMindJson(
   // 写盘前对 JSON 序列化结果统一过 scrubSecrets，挡住 LLM 误把 .env/token/api-key 写进 mind 的情况。
   const rawJson = JSON.stringify(mergedPayload ?? payload, null, 2);
   const scrubbed = scrubSecrets(rawJson);
+
+  // 文件大小骤降告警：新 JSON < 旧文件 50% 且旧文件 >10KB 时强制备份+日志
+  const SIZE_DROP_THRESHOLD = 0.5;
+  const MIN_SIZE_FOR_CHECK = 10_240;
+  let sizeDropDetected = false;
+  try {
+    const prevStat = await stat(mindFile);
+    const prevSize = prevStat.size;
+    const newSize = Buffer.byteLength(scrubbed.text, "utf-8");
+    if (prevSize >= MIN_SIZE_FOR_CHECK && newSize < prevSize * SIZE_DROP_THRESHOLD) {
+      sizeDropDetected = true;
+      const dropBackupDir = resolvePath(dirname(mindFile), CHANNELS_BACKUP_DIR);
+      await mkdir(dropBackupDir, { recursive: true });
+      const dropBackupPath = join(dropBackupDir, `mind.json.size-drop-${timestampToSafeName()}`);
+      await writeFile(dropBackupPath, await readFile(mindFile, "utf-8"), "utf-8");
+      console.warn(
+        `[persistMindJson] SIZE DROP ALERT: ${prevSize} → ${newSize} bytes (${Math.round((newSize / prevSize) * 100)}%). Backup: ${dropBackupPath}`,
+      );
+    }
+  } catch {
+    /* mindFile 不存在或 stat 失败，跳过检查 */
+  }
+
   await writeAtomicJson(mindFile, scrubbed.text);
   return {
     backedUpTo,
@@ -229,5 +253,6 @@ export async function persistMindJson(
     channelCountAfter: mergedPayload?.channels?.length ?? cmp.afterCount,
     shrank: cmp.shrank,
     mergedMissingChannelIds,
+    sizeDropDetected,
   };
 }
