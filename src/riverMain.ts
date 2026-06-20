@@ -8416,7 +8416,7 @@ exec "${file}" "$@"
         if (mastered) {
           const cmd = args.args ? `${mastered.command} ${args.args}` : mastered.command;
           const defaultCwdByToolName = {
-            verify_local_gateway_runtime_and_mcp_status: "/Users/a333/Desktop/\u8BA4\u77E5\u5947\u70B9/claude-llm-bridge-mcp"
+            verify_local_gateway_runtime_and_mcp_status: process.env.CLAUDE_BRIDGE_MCP_DIR ?? resolvePath(homedir(), "claude-llm-bridge-mcp")
           };
           const execCwd = defaultCwdByToolName[name] ?? process.cwd();
           try {
