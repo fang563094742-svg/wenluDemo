@@ -7178,7 +7178,13 @@ async function executeTool(name, args) {
       case "browse_url": {
         const targetUrl = String(args.url ?? "");
         if (!targetUrl) return "\u9519\u8BEF\uFF1AURL \u4E3A\u7A7A";
-        const raw = await httpGetViaPython(targetUrl);
+        let parsedUrl: URL;
+        try { parsedUrl = new URL(targetUrl); } catch { return "\u9519\u8BEF\uFF1AURL \u683C\u5F0F\u65E0\u6548"; }
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) return "\u9519\u8BEF\uFF1A\u4EC5\u5141\u8BB8 http/https \u534F\u8BAE";
+        const host = parsedUrl.hostname.toLowerCase();
+        if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|localhost$|::1$|\[::1\]$)/.test(host))
+          return "\u9519\u8BEF\uFF1A\u4E0D\u5141\u8BB8\u8BBF\u95EE\u5185\u7F51\u5730\u5740";
+        const raw = await httpGetViaPython(parsedUrl.href);
         if (raw.startsWith("__ERR__")) return `[browse-\u5931\u8D25] ${raw.slice(7, 200)}`;
         const text = raw.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, " ").replace(/\s{2,}/g, " ").trim();
         if (!text) return "[browse-\u7A7A] \u9875\u9762\u65E0\u6709\u6548\u6587\u672C\u5185\u5BB9";
