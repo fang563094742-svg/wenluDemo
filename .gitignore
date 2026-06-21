@@ -12,6 +12,7 @@ dist/
 # OS
 .DS_Store
 .wenlu-local/
+.wenlu-local-DEPRECATED/
 .wenlu-local-backup-*/
 
 # 用户数据 (per-user 大脑/记忆/流水/证据等, 不入 git, 隐私+体积)
