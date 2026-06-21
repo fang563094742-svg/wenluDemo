@@ -7,20 +7,18 @@
  * 优先级：
  *   1. 环境变量 WENLU_DATA_DIR （生产服务器可设别的路径，例如 /var/lib/wenlu/）
  *   2. <projectRoot>/用户数据/  （默认；项目内自包含，便于开发/迁移）
- *   3. <cwd>/.wenlu-local/      （兼容旧 demo 路径，仅当 (1)(2) 都不存在时退化）
+ *
+ * 如果两者都不存在，直接报错退出（fail-fast），不再静默退化到旧路径。
  *
  * 注意：此文件被 riverMain.ts 的全局位置以及 UserSession.ts 的 per-user 位置
  * 共同使用——前者读 `<根>/global/...`，后者读 `<根>/users/<userId>/...`。
  */
 import { resolve as resolvePath, dirname } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** 默认用户数据子目录名（项目内）。 */
 const DEFAULT_USER_DATA_SUBDIR = "用户数据";
-
-/** 兼容旧 demo 的 fallback 子目录名。 */
-const LEGACY_LOCAL_SUBDIR = ".wenlu-local";
 
 /**
  * 解析 wenluDemo 项目根目录。
@@ -64,14 +62,8 @@ export function getWenluDataDir(): string {
   const root = resolveProjectRoot();
   const dataDir = resolvePath(root, DEFAULT_USER_DATA_SUBDIR);
 
-  // 3) Fallback：如果 <root>/用户数据 不存在但 cwd/.wenlu-local 存在，退化以兼容旧 demo
-  //    （仅在用户数据目录尚未初始化的极少数情况；首次启动后自动建好就不再走这条）
   if (!existsSync(dataDir)) {
-    const legacy = resolvePath(process.cwd(), LEGACY_LOCAL_SUBDIR);
-    if (existsSync(legacy) && statSync(legacy).isDirectory()) {
-      _cachedRoot = legacy;
-      return _cachedRoot;
-    }
+    mkdirSync(dataDir, { recursive: true });
   }
 
   _cachedRoot = dataDir;
@@ -95,7 +87,7 @@ export function resolveWenluDataPath(...segments: string[]): string {
  * 取某用户的 per-user 数据目录（`<root>/users/<userId>/`）。
  * 如果未传 userId，按 SYSTEM_USER_ID（`00000000-0000-0000-0000-000000000000`）。
  *
- * 注意：本函数只返路径，不创建目录。调用方负责 mkdir。
+ * 注意：本函数返回路径并按需创建目录。
  *
  * @param userId 用户 UUID（与 PG users.id 一致）；缺省 = System_User
  */
