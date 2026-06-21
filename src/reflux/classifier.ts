@@ -106,6 +106,8 @@ export interface PromotionContext {
    * 缺省 / 空数组则跳过宪法裁决（observe 模式不裁决）。
    */
   signals?: ReadonlyArray<SourceSignal>;
+  /** 贡献者认知权威（0~1，缺省 0）。值越高阈值折扣越大（权威教师效应）。 */
+  teacherAuthority?: number;
 }
 
 /** 候选状态转移结果（状态机推进类方法返回）。 */
@@ -202,11 +204,23 @@ const CONFIDENCE_FLOOR = 0.45;
 // 纯函数：阈值 / Skill → SkillSpec
 // ─────────────────────────────────────────────────────────────────
 
-/** 取该候选的 Promotion_Threshold_N（可执行类用硬阈值，软性类用软阈值）。 */
-function thresholdOf(kind: SkillCandidate["kind"], config: RefluxConfig): number {
-  return kind === "executable"
-    ? config.Promotion_Threshold_N_hard
-    : config.Promotion_Threshold_N_soft;
+/**
+ * 取该候选的晋升阈值。权威教师折扣：teacherAuthority=1 时阈值打折为 ceil(base*(1-discount))，
+ * 等效于"更少样本即可晋升"——不是对分数加权，而是降低通过门槛。
+ */
+function thresholdOf(
+  kind: SkillCandidate["kind"],
+  config: RefluxConfig,
+  teacherAuthority = 0,
+): number {
+  const base =
+    kind === "executable"
+      ? config.Promotion_Threshold_N_hard
+      : config.Promotion_Threshold_N_soft;
+  if (teacherAuthority <= 0) return base;
+  const clamped = Math.min(Math.max(teacherAuthority, 0), 1);
+  const discount = config.Teacher_Authority_Discount;
+  return Math.max(1, Math.ceil(base * (1 - clamped * discount)));
 }
 
 /**
@@ -597,7 +611,8 @@ export function createClassifier(deps: ClassifierDeps): Classifier {
       const cf: ConflictFreeResult = await deduplicator.isConflictFree(candidateId);
 
       // 7) Promotion_Gate 第二合取项：复用≥N ∨（High_Score ∧ Conflict_Free）。
-      const threshold = thresholdOf(cand.kind, config);
+      const authority = ctx.teacherAuthority ?? 0;
+      const threshold = thresholdOf(cand.kind, config, authority);
       const reuseBranch = cand.contributor_reuse_success >= threshold;
       const highScore = ctx.highScore === true;
 

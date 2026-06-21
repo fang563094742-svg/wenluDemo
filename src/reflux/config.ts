@@ -41,6 +41,10 @@ export interface RefluxConfig {
   Promotion_Threshold_N_soft: number;
   /** High_Score：success_rate 高于此值视为高分（默认 0.8）。 */
   High_Score: number;
+  /** Teacher_Authority_Discount：权威教师折扣因子（0~1，默认 0.5）。
+   *  有效阈值 = ceil(baseThreshold * (1 - teacherAuthority * discount))。
+   *  discount=0.5 + authority=1.0 → 可执行类阈值从 3 降到 2。 */
+  Teacher_Authority_Discount: number;
 
   // ── 冷启动 ──
   /** Starter_M：纳入 Starter_Skill_Set 的 Cross_User_Breadth 阈值（默认 3）。 */
@@ -87,6 +91,7 @@ export const DEFAULT_REFLUX_CONFIG: RefluxConfig = {
   Promotion_Threshold_N_hard: 3,
   Promotion_Threshold_N_soft: 5,
   High_Score: 0.8,
+  Teacher_Authority_Discount: 0.5,
   // 冷启动
   Starter_M: 3,
   Starter_TopN: 20,
@@ -174,6 +179,11 @@ export function resolveRefluxConfig(overrides: Partial<RefluxConfig> = {}): Refl
       envNum("REFLUX_PROMOTION_N_SOFT"),
     ),
     High_Score: pick(d.High_Score, overrides.High_Score, envNum("REFLUX_HIGH_SCORE")),
+    Teacher_Authority_Discount: pick(
+      d.Teacher_Authority_Discount,
+      overrides.Teacher_Authority_Discount,
+      envNum("REFLUX_TEACHER_AUTHORITY_DISCOUNT"),
+    ),
     // 冷启动
     Starter_M: pick(d.Starter_M, overrides.Starter_M, envNum("REFLUX_STARTER_M")),
     Starter_TopN: pick(d.Starter_TopN, overrides.Starter_TopN, envNum("REFLUX_STARTER_TOPN")),
