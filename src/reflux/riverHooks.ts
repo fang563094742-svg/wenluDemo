@@ -104,14 +104,38 @@ let _verifier: Verifier | null = null;
 let _feedbackWriter: FeedbackWriter | null = null;
 let _connectorAdapter: ConnectorLike | null = null;
 
+// ─────── OPT-2：事件驱动蒸馏（3s debounce，替代 10min 批量定时器延迟） ───────
+const DISTILL_DEBOUNCE_MS = 3_000;
+let _distillTimer: ReturnType<typeof setTimeout> | null = null;
+let _distillRunning = false;
+
+function _notifyDistillDebounce(): void {
+  if (_distillTimer) clearTimeout(_distillTimer);
+  _distillTimer = setTimeout(_triggerDistillNow, DISTILL_DEBOUNCE_MS);
+}
+
+async function _triggerDistillNow(): Promise<void> {
+  _distillTimer = null;
+  if (_distillRunning) return; // 防重入
+  _distillRunning = true;
+  try {
+    await distiller().distillPendingBatch();
+  } catch (err) {
+    console.warn("[OPT-2] 即时蒸馏失败（不影响主链路）:", err instanceof Error ? err.message : String(err));
+  } finally {
+    _distillRunning = false;
+  }
+}
+// ─────── /OPT-2 ───────
+
 function config(): RefluxConfig {
   if (!_config) _config = resolveRefluxConfig();
   return _config;
 }
 
-/** 默认 Harvester（零 LLM 采集）。 */
+/** 默认 Harvester（零 LLM 采集）。注入 OPT-2 事件驱动蒸馏通知。 */
 export function harvester(): Harvester {
-  if (!_harvester) _harvester = createHarvester();
+  if (!_harvester) _harvester = createHarvester({ onEnqueued: _notifyDistillDebounce });
   return _harvester;
 }
 
