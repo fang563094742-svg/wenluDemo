@@ -32,6 +32,8 @@ export interface RouteParams {
   deterministic?: DeterministicProbe;
   /** 技能被信任复用所需的最小验证成功次数。 */
   minTrust: number;
+  /** 语义相关度最低阈值，低于此分的技能不命中（0~1，默认 0 保持旧行为）。 */
+  minMatchRelevance?: number;
 }
 
 /**
@@ -44,12 +46,12 @@ export function routeTask(params: RouteParams): RouteDecision {
   try {
     const { taskDesc, platform, kb, deterministic } = params;
     const minTrust = Number.isFinite(params.minTrust) && params.minTrust >= 0 ? params.minTrust : 1;
+    const minRel = Number.isFinite(params.minMatchRelevance) ? params.minMatchRelevance! : 0;
 
     // ── 一级：技能命中 ──
-    const candidates = searchSkills(kb, taskDesc, platform);
+    const candidates = searchSkills(kb, taskDesc, platform, undefined, minRel);
     for (const skill of candidates) {
       const verified = skill.provenance?.verifiedCount ?? 0;
-      // 达到最小验证次数才允许被信任复用；否则不固化未验证技能。
       if (verified >= minTrust && reputationOf(skill) > 0) {
         return {
           tier: "skill",

@@ -13,6 +13,7 @@ import {
   type SkillPlatform,
   type SkillTaxonomy,
   skillMatches,
+  skillRelevance,
 } from "./skill-spec.js";
 
 export interface SkillKB {
@@ -41,33 +42,77 @@ export function reputationOf(spec: SkillSpec): number {
 }
 
 /**
- * 检索：适用条件 + 平台过滤后按信誉降序。
+ * UCB1 探索奖励：给低样本技能额外分数，鼓励探索。
+ * C = 探索常数（默认 0.5），globalN = 所有技能总调用次数。
+ */
+export function ucb1Bonus(spec: SkillSpec, globalN: number, C = 0.5): number {
+  const total = spec?.provenance?.totalCount ?? 0;
+  if (total <= 0) return C; // 从未被用过→给满额探索奖励
+  if (globalN <= 0) return 0;
+  return C * Math.sqrt(Math.log(globalN) / total);
+}
+
+/**
+ * Recency boost：新创建的技能在 decayDays 内获得线性衰减加分。
+ * 返回 0~maxBoost（默认 0.3），超过 decayDays（默认 7 天）后归零。
+ */
+export function recencyBoost(spec: SkillSpec, nowMs = Date.now(), decayDays = 7, maxBoost = 0.3): number {
+  const created = spec?.provenance?.createdAt;
+  if (!created) return 0;
+  const ageMs = nowMs - new Date(created).getTime();
+  if (ageMs < 0) return maxBoost;
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (ageDays >= decayDays) return 0;
+  return maxBoost * (1 - ageDays / decayDays);
+}
+
+/**
+ * 检索：适用条件 + 平台过滤后按 relevance×信誉 降序。
  * taxonomy 给定时按 taskType/app/industry 做额外收窄（缺省不收窄）。
+ * minRelevance：相关度下限（0~1），低于此分不返回。默认 0（旧行为兼容）。
  */
 export function searchSkills(
   kb: SkillKB,
   taskDesc: string,
   platform: SkillPlatform,
   taxonomy?: Partial<SkillTaxonomy>,
+  minRelevance = 0,
 ): SkillSpec[] {
   const all = kb?.skills ?? [];
-  const matched = all.filter((s) => {
-    if (!skillMatches(s, taskDesc, platform)) return false;
-    if (taxonomy?.taskType && s.taxonomy?.taskType !== taxonomy.taskType) return false;
-    if (taxonomy?.app && s.taxonomy?.app !== taxonomy.app) return false;
-    if (taxonomy?.industry && s.taxonomy?.industry !== taxonomy.industry) return false;
-    return true;
-  });
-  // 信誉降序；并列时验证样本多者优先（更可靠），再并列按 id 稳定排序。
-  return [...matched].sort((a, b) => {
-    const ra = reputationOf(a);
-    const rb = reputationOf(b);
-    if (rb !== ra) return rb - ra;
-    const ta = a.provenance?.totalCount ?? 0;
-    const tb = b.provenance?.totalCount ?? 0;
-    if (tb !== ta) return tb - ta;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+  const scored: Array<{ s: SkillSpec; rel: number }> = [];
+  for (const s of all) {
+    const rel = skillRelevance(s, taskDesc, platform);
+    if (rel <= 0) continue;
+    if (rel < minRelevance) continue;
+    if (!skillMatches(s, taskDesc, platform)) continue;
+    if (taxonomy?.taskType && s.taxonomy?.taskType !== taxonomy.taskType) continue;
+    if (taxonomy?.app && s.taxonomy?.app !== taxonomy.app) continue;
+    if (taxonomy?.industry && s.taxonomy?.industry !== taxonomy.industry) continue;
+    scored.push({ s, rel });
+  }
+  // 综合排序：relevance * (reputation + UCB1探索奖励 + recency新鲜度) 降序。
+  // UCB1 保证低样本技能有公平探索机会；recency 让新晋升技能不被埋没。
+  const globalN = all.reduce((sum, s) => sum + (s.provenance?.totalCount ?? 0), 0);
+  const nowMs = Date.now();
+  return scored
+    .sort((a, b) => {
+      const exploitA = reputationOf(a.s);
+      const exploreA = ucb1Bonus(a.s, globalN, 0.5);
+      const freshA = recencyBoost(a.s, nowMs);
+      const scoreA = a.rel * exploitA + exploreA + freshA;
+
+      const exploitB = reputationOf(b.s);
+      const exploreB = ucb1Bonus(b.s, globalN, 0.5);
+      const freshB = recencyBoost(b.s, nowMs);
+      const scoreB = b.rel * exploitB + exploreB + freshB;
+
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      const ta = a.s.provenance?.totalCount ?? 0;
+      const tb = b.s.provenance?.totalCount ?? 0;
+      if (tb !== ta) return tb - ta;
+      return a.s.id < b.s.id ? -1 : a.s.id > b.s.id ? 1 : 0;
+    })
+    .map((x) => x.s);
 }
 
 /**

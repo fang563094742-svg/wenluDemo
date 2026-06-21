@@ -54,3 +54,11 @@ export {
   type DistillResult,
   distillSkill,
 } from "./distiller.js";
+
+// 海马体桥接
+export {
+  type RouteEnrichment,
+  enrichRouteWithMemory,
+  syncPromotedSkillToMemory,
+  inferTeacherAuthority,
+} from "../bridges/memory-bridge.js";

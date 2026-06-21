@@ -84,18 +84,34 @@ export function scanResidualPrivacy(spec: SkillSpec): { clean: boolean; leaks: s
   return { clean: leaks.length === 0, leaks };
 }
 
-/** 适用条件匹配：任务描述 + 平台 是否命中本技能。 */
-export function skillMatches(spec: SkillSpec, taskDesc: string, platform: SkillPlatform): boolean {
-  if (!spec) return false;
-  // 平台兼容：技能声明 any 或包含当前平台。
+/**
+ * 语义相关度：taskDesc 对 spec.when.taskPattern 的 token 命中率加权分数。
+ * 返回 0~1。短 token 权重低于长 token（简易 IDF 代理）。
+ */
+export function skillRelevance(spec: SkillSpec, taskDesc: string, platform: SkillPlatform): number {
+  if (!spec) return 0;
   const platformOk = spec.platform.includes("any") || spec.platform.includes(platform);
-  if (!platformOk) return false;
+  if (!platformOk) return 0;
   const desc = (taskDesc ?? "").toLowerCase();
   const pattern = (spec.when?.taskPattern ?? "").toLowerCase();
-  if (!pattern) return false;
-  // taskPattern 的关键 token（含中文 2-gram）命中任务描述即视为匹配。
+  if (!pattern) return 0;
   const tokens = tokenize(pattern);
-  return tokens.length > 0 && tokens.some((t) => desc.includes(t));
+  if (tokens.length === 0) return 0;
+  let weightSum = 0;
+  let hitWeight = 0;
+  for (const t of tokens) {
+    const w = Math.log2(1 + t.length);
+    weightSum += w;
+    if (desc.includes(t)) hitWeight += w;
+  }
+  return weightSum > 0 ? hitWeight / weightSum : 0;
+}
+
+/** 适用条件匹配：任务描述 + 平台 是否命中本技能。 */
+export function skillMatches(spec: SkillSpec, taskDesc: string, platform: SkillPlatform, minRelevance = 0): boolean {
+  const rel = skillRelevance(spec, taskDesc, platform);
+  if (minRelevance > 0) return rel >= minRelevance;
+  return rel > 0;
 }
 
 /** 切 token：英文按分隔，中文加 2-gram。 */
