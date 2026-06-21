@@ -8,17 +8,19 @@
  * 把轨迹明细写入 `trajectory_event`（经任务 9 的 `trajectoryBuffer`）；
  * 重活（蒸馏/去重/验证/LLM 评审）一律留给后台管线（Distiller 等）批量执行。
  *
- * 采集映射（design.md「Harvester 采集映射」表 / Req 2）：
- *  | 触发                              | signal_role      | 入队动作                                   |
- *  |-----------------------------------|------------------|--------------------------------------------|
- *  | verify_task passed                | truth_gate       | onVerifyPassed → enqueue（带 linked_verifiable_id）|
- *  | settle_prediction hit             | truth_gate       | onPredictionSettled('hit') → enqueue       |
- *  | settle_prediction miss            | —                | 不入队为成功信号                            |
- *  | forge_capability 成功             | executable_seed  | enqueue（带 linked_prediction_id）          |
- *  | master_tool 成功                  | executable_seed  | enqueue                                    |
- *  | add_rule / consolidate 概念       | soft_seed        | enqueue                                    |
- *  | finish_task done                  | —（仅数据源）    | stashTrajectory（仅落轨迹，不入队为成功信号）|
- *  | understand_user / userModel       | —（排除）        | Entry_Gate 隐私闸直接丢弃                    |
+ * 采集映射（design.md「Harvester 采集映射」表 / Req 2 + OPT-1 学习加速扩容）：
+ *  | 触发                              | signal_role         | 入队动作                                   |
+ *  |-----------------------------------|---------------------|--------------------------------------------|
+ *  | verify_task passed                | truth_gate          | onVerifyPassed → enqueue（带 linked_verifiable_id）|
+ *  | settle_prediction hit             | truth_gate          | onPredictionSettled('hit') → enqueue       |
+ *  | settle_prediction miss            | correction_signal   | onPredictionSettled('miss') → enqueue（教训）|
+ *  | forge_capability 成功             | executable_seed     | enqueue（带 linked_prediction_id）          |
+ *  | master_tool 成功                  | executable_seed     | enqueue                                    |
+ *  | add_rule / consolidate 概念       | soft_seed           | enqueue                                    |
+ *  | finish_task fail                  | correction_signal   | stashTrajectory → enqueue（弱教训）         |
+ *  | finish_task done                  | —（仅数据源）       | stashTrajectory（仅落轨迹）                 |
+ *  | user_correction                   | correction_signal   | onUserCorrection → enqueue（权威教师）      |
+ *  | understand_user / userModel       | —（排除）           | Entry_Gate 隐私闸直接丢弃                    |
  *
  * Entry_Gate 隐私闸（Req 2.7 / 16.1）：凡来源于 `understand_user`、userModel、或针对具体主人的
  * 个人 beliefs 的信号一律拒绝采集、不入队、不送管线（零 LLM 的廉价键/串匹配，不调任何 LLM provider）。
@@ -62,6 +64,7 @@ const VALID_SIGNAL_ROLES: ReadonlySet<SignalRole> = new Set<SignalRole>([
   "truth_gate",
   "executable_seed",
   "soft_seed",
+  "correction_signal",
 ]);
 
 /**
@@ -136,14 +139,14 @@ export interface Harvester {
     trajectory: TrajectoryRef,
     ctx: HarvestContext,
   ): Promise<void>;
-  /** settle_prediction 结算 → hit 入队为 truth_gate；miss 不入队为成功信号（Req 2.6 同理）。 */
+  /** settle_prediction 结算 → hit 入队为 truth_gate；miss 入队为 correction_signal（教训信号）。 */
   onPredictionSettled(
     predictionId: string,
     result: "hit" | "miss",
     outcome: string,
     ctx: HarvestContext,
   ): Promise<void>;
-  /** finish_task done：仅把 cur.log 作为轨迹原料落库，**不入队为成功信号**（Req 2.6）。 */
+  /** finish_task done：把 cur.log 作为轨迹原料落库；任务失败时额外入队弱 correction_signal。 */
   stashTrajectory(
     taskId: string,
     log: LogEntry[],
@@ -151,6 +154,16 @@ export interface Harvester {
     result: string,
     ctx: HarvestContext,
   ): Promise<void>;
+  /**
+   * 用户显式纠正 AI 行为：入队为 correction_signal（权威教师信号，OPT-1）。
+   * 限制：仅 source_weight=user_task 时有效。隐私闸仍生效。
+   */
+  onUserCorrection(input: {
+    originalAction: string;
+    correction: string;
+    context: string;
+    trajectory?: TrajectoryRef;
+  }, ctx: HarvestContext): Promise<boolean>;
   /** 每次 executeTool 维护环形缓冲（复用任务 9 的 trajectoryBuffer，Req 3.2）。 */
   recordAction(ev: TrajectoryEvent): Promise<void>;
   /** 调用到可追溯的已知技能/命令时记一条调用事件（反向点亮 + 静默检测，Req 2.9）。 */
@@ -171,6 +184,12 @@ export interface HarvesterDeps {
   trajectory?: TrajectoryBuffer;
   /** 异常日志回调；默认 `console.warn`。所有 hook 吞错后经此记日志，绝不向上抛。 */
   onError?: (where: string, err: unknown) => void;
+  /**
+   * OPT-2：信号入队成功后的通知回调（事件驱动蒸馏触发器）。
+   * riverHooks 层注册 3s debounce 的即时蒸馏触发，消除批量定时器延迟。
+   * 回调不 await，不阻塞主链路。
+   */
+  onEnqueued?: (sig: HarvestSignal) => void;
 }
 
 /**
@@ -190,6 +209,7 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
         err instanceof Error ? err.message : String(err),
       );
     });
+  const onEnqueued = deps.onEnqueued;
 
   /**
    * 真正的入队写库（无 Entry_Gate 判定，由 `enqueue` 在外层先过闸）。
@@ -245,6 +265,8 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
         return false;
       }
       await insertSignal(sig);
+      // OPT-2：通知蒸馏触发器（fire-and-forget，不阻塞主链路）
+      try { onEnqueued?.(sig); } catch { /* 吞错 */ }
       return true;
     } catch (err) {
       onError("enqueue", err);
@@ -286,17 +308,29 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
       ctx: HarvestContext,
     ): Promise<void> {
       try {
-        // 仅 hit 入队为 truth_gate 成功信号；miss 不入队（不把失败当成功信号）。
-        if (result !== "hit") return;
-        await enqueueImpl({
-          signal_role: "truth_gate",
-          source_tool: "settle_prediction",
-          source_weight: ctx.source_weight,
-          contributor_id: ctx.contributor_id,
-          payload: { outcome },
-          linked_prediction_id: predictionId,
-          task_id: ctx.task_id,
-        });
+        if (result === "hit") {
+          // hit → truth_gate 成功信号（原有行为）
+          await enqueueImpl({
+            signal_role: "truth_gate",
+            source_tool: "settle_prediction",
+            source_weight: ctx.source_weight,
+            contributor_id: ctx.contributor_id,
+            payload: { outcome },
+            linked_prediction_id: predictionId,
+            task_id: ctx.task_id,
+          });
+        } else {
+          // miss → correction_signal 教训信号（OPT-1：错误也是教师）
+          await enqueueImpl({
+            signal_role: "correction_signal",
+            source_tool: "settle_prediction",
+            source_weight: ctx.source_weight,
+            contributor_id: ctx.contributor_id,
+            payload: { outcome, miss_reason: "prediction_falsified" },
+            linked_prediction_id: predictionId,
+            task_id: ctx.task_id,
+          });
+        }
       } catch (err) {
         onError("onPredictionSettled", err);
       }
@@ -310,9 +344,6 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
       ctx: HarvestContext,
     ): Promise<void> {
       try {
-        // Req 2.6：finish_task done 仅把 cur.log 作为轨迹原料采集，
-        // 绝不入队为成功信号、绝不把 done 当质量闸。
-        // 任务 10.2：任务线内用 cur.id(taskId) 关联 cur.log，逐条落 trajectory_event（环形缓冲）。
         const entries = Array.isArray(log) ? log : [];
         for (const e of entries) {
           await trajectory.recordAction({
@@ -324,7 +355,6 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
             result_summary: e.result_summary,
           });
         }
-        // 追加一条任务收尾摘要轨迹（goal/result），便于蒸馏阶段还原任务意图与结局。
         await trajectory.recordAction({
           user_id: ctx.contributor_id,
           task_id: taskId,
@@ -332,6 +362,19 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
           args_summary: goal,
           result_summary: result,
         });
+
+        // OPT-1：任务失败时入队弱 correction_signal（提供教训素材）
+        const isFail = /fail|error|abort|cancel/i.test(result);
+        if (isFail && ctx.source_weight === "user_task") {
+          await enqueueImpl({
+            signal_role: "correction_signal",
+            source_tool: "finish_task_fail",
+            source_weight: ctx.source_weight,
+            contributor_id: ctx.contributor_id,
+            payload: { goal, result, step_count: entries.length },
+            task_id: taskId,
+          });
+        }
       } catch (err) {
         onError("stashTrajectory", err);
       }
@@ -348,8 +391,6 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
 
     async recordInvocation(ev: InvocationEvent): Promise<void> {
       try {
-        // 调用可追溯到 Skill_Candidate / Public_Skill 的命令/技能 → 记调用事件（Req 2.9）。
-        // 同时服务于 master_tool 候选的反向点亮（Req 9.10）与静默继承检测（Req 12）。
         const platform: SkillPlatform | null = ev.platform ?? null;
         await query(
           `INSERT INTO skill_invocation_event
@@ -367,6 +408,34 @@ export function createHarvester(deps: HarvesterDeps = {}): Harvester {
         );
       } catch (err) {
         onError("recordInvocation", err);
+      }
+    },
+
+    async onUserCorrection(input: {
+      originalAction: string;
+      correction: string;
+      context: string;
+      trajectory?: TrajectoryRef;
+    }, ctx: HarvestContext): Promise<boolean> {
+      try {
+        if (ctx.source_weight !== "user_task") return false;
+        const sig: HarvestSignal = {
+          signal_role: "correction_signal",
+          source_tool: "user_correction",
+          source_weight: ctx.source_weight,
+          contributor_id: ctx.contributor_id,
+          payload: {
+            original: input.originalAction,
+            correction: input.correction,
+            context: input.context,
+          },
+          task_id: ctx.task_id,
+        };
+        if (isPrivacySignal(sig)) return false;
+        return await enqueueImpl(sig);
+      } catch (err) {
+        onError("onUserCorrection", err);
+        return false;
       }
     },
   };
@@ -391,7 +460,7 @@ export function onVerifyPassed(
   return defaultHarvester.onVerifyPassed(verifiableId, evidence, trajectory, ctx);
 }
 
-/** settle_prediction 结算 → hit 入队（默认实例）。 */
+/** settle_prediction 结算 → hit 入队 truth_gate / miss 入队 correction_signal（默认实例）。 */
 export function onPredictionSettled(
   predictionId: string,
   result: "hit" | "miss",
@@ -401,7 +470,7 @@ export function onPredictionSettled(
   return defaultHarvester.onPredictionSettled(predictionId, result, outcome, ctx);
 }
 
-/** finish_task done → 仅落轨迹（默认实例）。 */
+/** finish_task → 落轨迹 + 失败时入队 correction_signal（默认实例）。 */
 export function stashTrajectory(
   taskId: string,
   log: LogEntry[],
@@ -420,4 +489,17 @@ export function recordAction(ev: TrajectoryEvent): Promise<void> {
 /** 记技能/命令调用事件（默认实例）。 */
 export function recordInvocation(ev: InvocationEvent): Promise<void> {
   return defaultHarvester.recordInvocation(ev);
+}
+
+/** 用户显式纠正 AI 行为 → correction_signal 入队（默认实例，OPT-1）。 */
+export function onUserCorrection(
+  input: {
+    originalAction: string;
+    correction: string;
+    context: string;
+    trajectory?: TrajectoryRef;
+  },
+  ctx: HarvestContext,
+): Promise<boolean> {
+  return defaultHarvester.onUserCorrection(input, ctx);
 }

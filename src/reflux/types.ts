@@ -73,8 +73,9 @@ export type SkillStatus = "active" | "retired";
  * - `truth_gate`：客观证明"有效"的信号（verify_task passed / settle_prediction hit）。
  * - `executable_seed`：可执行技能坯子（forge_capability / master_tool）。
  * - `soft_seed`：软技能坯子（add_rule / consolidate）。
+ * - `correction_signal`：用户纠正/预测失败的教训信号（OPT-1 学习加速扩容）。
  */
-export type SignalRole = "truth_gate" | "executable_seed" | "soft_seed";
+export type SignalRole = "truth_gate" | "executable_seed" | "soft_seed" | "correction_signal";
 
 /**
  * 来源权重（Source_Weight，Req 2.8）：
