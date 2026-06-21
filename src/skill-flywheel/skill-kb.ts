@@ -15,6 +15,7 @@ import {
   skillMatches,
   skillRelevance,
 } from "./skill-spec.js";
+import { type FlywheelRankingParams, DEFAULT_RANKING } from "./flywheel-config.js";
 
 export interface SkillKB {
   skills: SkillSpec[];
@@ -67,9 +68,9 @@ export function recencyBoost(spec: SkillSpec, nowMs = Date.now(), decayDays = 7,
 }
 
 /**
- * 检索：适用条件 + 平台过滤后按 relevance×信誉 降序。
- * taxonomy 给定时按 taskType/app/industry 做额外收窄（缺省不收窄）。
- * minRelevance：相关度下限（0~1），低于此分不返回。默认 0（旧行为兼容）。
+ * 检索：适用条件 + 平台过滤后按综合排名降序。
+ * 不变式：rel=0 的技能绝不出现在结果中（探索奖励在 rel 括号内，rel=0 → score=0）。
+ * ranking 参数从 FlywheelConfig.ranking 透传，消除 magic number 双源。
  */
 export function searchSkills(
   kb: SkillKB,
@@ -77,6 +78,7 @@ export function searchSkills(
   platform: SkillPlatform,
   taxonomy?: Partial<SkillTaxonomy>,
   minRelevance = 0,
+  ranking: FlywheelRankingParams = DEFAULT_RANKING,
 ): SkillSpec[] {
   const all = kb?.skills ?? [];
   const scored: Array<{ s: SkillSpec; rel: number }> = [];
@@ -90,21 +92,22 @@ export function searchSkills(
     if (taxonomy?.industry && s.taxonomy?.industry !== taxonomy.industry) continue;
     scored.push({ s, rel });
   }
-  // 综合排序：relevance * (reputation + UCB1探索奖励 + recency新鲜度) 降序。
-  // UCB1 保证低样本技能有公平探索机会；recency 让新晋升技能不被埋没。
+  // 综合排序：rel * (exploit + exploreWeight*explore + freshWeight*fresh)
+  // rel=0 被上面的 continue 排除；rel>0 时探索/新鲜度按比例缩放，不会独立主导。
   const globalN = all.reduce((sum, s) => sum + (s.provenance?.totalCount ?? 0), 0);
   const nowMs = Date.now();
+  const { ucb1C, recencyDecayDays, recencyMaxBoost, exploreWeight, freshWeight } = ranking;
   return scored
     .sort((a, b) => {
       const exploitA = reputationOf(a.s);
-      const exploreA = ucb1Bonus(a.s, globalN, 0.5);
-      const freshA = recencyBoost(a.s, nowMs);
-      const scoreA = a.rel * exploitA + exploreA + freshA;
+      const exploreA = ucb1Bonus(a.s, globalN, ucb1C);
+      const freshA = recencyBoost(a.s, nowMs, recencyDecayDays, recencyMaxBoost);
+      const scoreA = a.rel * (exploitA + exploreWeight * exploreA + freshWeight * freshA);
 
       const exploitB = reputationOf(b.s);
-      const exploreB = ucb1Bonus(b.s, globalN, 0.5);
-      const freshB = recencyBoost(b.s, nowMs);
-      const scoreB = b.rel * exploitB + exploreB + freshB;
+      const exploreB = ucb1Bonus(b.s, globalN, ucb1C);
+      const freshB = recencyBoost(b.s, nowMs, recencyDecayDays, recencyMaxBoost);
+      const scoreB = b.rel * (exploitB + exploreWeight * exploreB + freshWeight * freshB);
 
       if (scoreB !== scoreA) return scoreB - scoreA;
       const ta = a.s.provenance?.totalCount ?? 0;

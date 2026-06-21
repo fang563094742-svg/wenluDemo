@@ -14,17 +14,37 @@ export interface FlywheelToggles {
   distiller: boolean;
 }
 
+export interface FlywheelRankingParams {
+  ucb1C: number;
+  recencyDecayDays: number;
+  recencyMaxBoost: number;
+  exploreWeight: number;
+  freshWeight: number;
+  routerMinRelevance: number;
+}
+
 export interface FlywheelConfig {
   mode: FlywheelMode;
   enabled: FlywheelToggles;
   /** 技能被信任复用前需累积的客观验证成功次数（缺省 1）。 */
   minVerifyToTrust: number;
+  ranking: FlywheelRankingParams;
 }
+
+export const DEFAULT_RANKING: FlywheelRankingParams = {
+  ucb1C: 0.5,
+  recencyDecayDays: 7,
+  recencyMaxBoost: 0.3,
+  exploreWeight: 0.3,
+  freshWeight: 0.2,
+  routerMinRelevance: 0.3,
+};
 
 export const DEFAULT_FLYWHEEL: FlywheelConfig = {
   mode: "observe",
   enabled: { router: false, distiller: false },
   minVerifyToTrust: 1,
+  ranking: { ...DEFAULT_RANKING },
 };
 
 export interface MindFlywheelReadLike {
@@ -36,6 +56,7 @@ function cloneDefault(): FlywheelConfig {
     mode: DEFAULT_FLYWHEEL.mode,
     enabled: { ...DEFAULT_FLYWHEEL.enabled },
     minVerifyToTrust: DEFAULT_FLYWHEEL.minVerifyToTrust,
+    ranking: { ...DEFAULT_RANKING },
   };
 }
 
@@ -44,6 +65,7 @@ export function resolveFlywheelConfig(mind: MindFlywheelReadLike | null | undefi
   const cfg = mind?.skillFlywheel;
   if (!cfg) return cloneDefault();
   const base = cloneDefault();
+  const r = cfg.ranking;
   return {
     mode: cfg.mode === "enforce" ? "enforce" : "observe",
     enabled: {
@@ -54,5 +76,17 @@ export function resolveFlywheelConfig(mind: MindFlywheelReadLike | null | undefi
       typeof cfg.minVerifyToTrust === "number" && Number.isFinite(cfg.minVerifyToTrust) && cfg.minVerifyToTrust >= 0
         ? Math.floor(cfg.minVerifyToTrust)
         : base.minVerifyToTrust,
+    ranking: {
+      ucb1C: finiteOr(r?.ucb1C, base.ranking.ucb1C),
+      recencyDecayDays: finiteOr(r?.recencyDecayDays, base.ranking.recencyDecayDays),
+      recencyMaxBoost: finiteOr(r?.recencyMaxBoost, base.ranking.recencyMaxBoost),
+      exploreWeight: finiteOr(r?.exploreWeight, base.ranking.exploreWeight),
+      freshWeight: finiteOr(r?.freshWeight, base.ranking.freshWeight),
+      routerMinRelevance: finiteOr(r?.routerMinRelevance, base.ranking.routerMinRelevance),
+    },
   };
+}
+
+function finiteOr(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : fallback;
 }
