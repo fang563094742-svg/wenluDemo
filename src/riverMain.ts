@@ -9974,9 +9974,7 @@ __name2(readBody, "readBody");
 const PUBLIC_DIR = (() => {
   const sibling = resolvePath(process.cwd(), "..", "wenluDemoWeb");
   if (existsSync(sibling)) return sibling;
-  const local = resolvePath(process.cwd(), "public");
-  if (existsSync(local)) return local;
-  return local;
+  throw new Error(`[frontend] 缺少唯一前端目录：${sibling}`);
 })();
 const CT = {
   ".html": "text/html;charset=utf-8",
